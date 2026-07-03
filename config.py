@@ -23,6 +23,8 @@ DEFAULTS = {
     "scr_always_on": 0,    # bool        if True, ignore timeout
     "chamber_max":45,    # int         30-80 °C  BME280 overtemp cutoff
     "wdt_enabled":      0,    # bool        hardware watchdog (applies on reboot)
+    "wifi_en":          0,    # bool        connect to WiFi (creds in secrets.py)
+    "ext_ctrl":         0,    # bool        apply setpoints from the Pi (external)
 
     # Heating (relay) — references the DS18B20 core temperature.
     # Inverted hysteresis: ON below heat_lower, OFF above heat_upper.
@@ -59,7 +61,8 @@ DEFAULTS = {
 
 _BOOL_KEYS = frozenset(
     k for k, v in DEFAULTS.items()
-    if k.endswith("_enabled") or k in ("ctrl_enabled", "use_fahrenheit", "scr_always_on")
+    if k.endswith("_enabled")
+    or k in ("ctrl_enabled", "use_fahrenheit", "scr_always_on", "wifi_en", "ext_ctrl")
 )
 
 # ESP32 NVS keys are limited to 15 characters.  An over-long key makes
@@ -147,6 +150,18 @@ class Config:
     @min_room.setter
     def min_room(self, c: float):
         self.min_room_x10 = round(c * 10)
+
+    # ------------------------------------------------ volatile (remote) values
+    def set_volatile(self, name, value):
+        """Set a value in RAM only — no NVS write.  Used for setpoints pushed
+        from the Pi, so remote control neither wears the flash nor clobbers the
+        persisted local configuration."""
+        if name in DEFAULTS:
+            self._cache[name] = int(value)
+
+    def reload(self):
+        """Discard any volatile overrides and reload persisted NVS values."""
+        self._load_all()
 
     # ---------------------------------------------------------------- reset
     def reset(self):

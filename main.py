@@ -24,6 +24,18 @@ from fan         import Fan
 from heater      import Heater
 from controller  import VentilationController
 from gui         import GUI
+from wifi        import WiFi
+from netclient   import NetClient
+
+# WiFi / Pi credentials live in secrets.py (gitignored). Missing → offline.
+try:
+    import secrets
+except ImportError:
+    class secrets:
+        WIFI_SSID = ""
+        WIFI_PASS = ""
+        PI_HOST   = ""
+        PI_PORT   = 8080
 
 from lib.i2c_lcd import I2cLcd
 
@@ -95,6 +107,17 @@ def boot():
     # GUI
     gui = GUI(lcd, cfg, ctrl, sensor, core)
 
+    # WiFi + Pi client (blocking connect here, BEFORE the WDT is armed)
+    wifi = WiFi(secrets.WIFI_SSID, secrets.WIFI_PASS)
+    net  = NetClient(cfg, secrets.PI_HOST, secrets.PI_PORT)
+    if cfg.wifi_en and secrets.WIFI_SSID:
+        lcd.move_to(0, 1)
+        lcd.putstr(_pad("WiFi connect... ", 16))
+        if wifi.connect():
+            print(f"[main] WiFi connected: {wifi.ip()}")
+        else:
+            print("[main] WiFi connect failed — running offline")
+
     # Hardware watchdog — only armed if enabled in config.  NOTE: once the
     # ESP32 WDT is created it cannot be stopped; toggling it off in the menu
     # takes effect only after a reboot.
@@ -104,15 +127,22 @@ def boot():
         print("[main] Watchdog armed (8 s)")
 
     print("[main] Boot complete — entering main loop")
-    _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt)
+    _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net,
+               fan1, fan2)
+
+
+def _pad(s, w):
+    s = s[:w]
+    return s + " " * (w - len(s)) if len(s) < w else s
 
 
 # ─────────────────────────────────────── main loop
-def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt):
+def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2):
     TICK_MS      = 50       # GUI/encoder poll interval
     GC_PERIOD_MS = 60_000   # explicit gc.collect every minute
     last_sense    = time.ticks_ms() - cfg.interval_s * 1000  # measure immediately
     last_gc       = time.ticks_ms()
+    last_wifi     = time.ticks_ms()
     awaiting_core = False    # True while a DS18B20 conversion is in flight
 
     while True:
@@ -152,6 +182,30 @@ def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt):
 
         # ── GUI render tick
         gui.tick()
+
+        # ── Networking: restore local values if external control was turned
+        #    off; otherwise poll the Pi when connected.  A poll blocks at most
+        #    the socket timeout (4 s) < watchdog window (8 s).
+        net.sync_mode()
+        if cfg.wifi_en:
+            if wifi.connected:
+                if net.due():
+                    net.poll({
+                        "id": "fermenter",
+                        "core": core.temperature_c,
+                        "chamber": sensor.temperature_c if sensor.ok else None,
+                        "rh": sensor.humidity,
+                        "heater": ctrl.heater_on,
+                        "fan": ctrl.status_str(),
+                        "fan1": fan1.duty_percent,
+                        "fan2": fan2.duty_percent,
+                        "core_fault": ctrl.core_fault,
+                        "chamber_alarm": ctrl.chamber_alarm,
+                        "ext": cfg.ext_ctrl,
+                    })
+            elif time.ticks_diff(now, last_wifi) >= 15000:
+                last_wifi = now
+                wifi.ensure()          # non-blocking reconnect nudge
 
         # ── Feed the watchdog (only if armed)
         if wdt:

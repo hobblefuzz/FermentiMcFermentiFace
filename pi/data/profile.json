@@ -1,0 +1,11 @@
+{
+  "points": [
+    {
+      "t": 0,
+      "setpoints": {
+        "heat_lower": 30.0,
+        "heat_upper": 32.0
+      }
+    }
+  ]
+}

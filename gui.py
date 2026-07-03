@@ -43,6 +43,8 @@ def _build_menu_tree():
         ("Always On",    "scr_always_on","bool",  0,    1,  "",    1),
         ("Chamber Max",  "chamber_max","int",  30,   80,  "C",   1),
         ("Watchdog",     "wdt_enabled",     "bool",  0,    1,  "",    1),
+        ("WiFi",         "wifi_en",         "bool",  0,    1,  "",    1),
+        ("Ext ctrl",     "ext_ctrl",        "bool",  0,    1,  "",    1),
         ("< Back",       "back"),
     ]
     RH = [
@@ -94,7 +96,8 @@ MENU_TREE = _build_menu_tree()
 def _fmt_value(key, raw_val, use_fahrenheit=False):
     """Format a raw config value for display (max ~8 chars)."""
     # Bool keys → ON / OFF
-    if key.endswith("_enabled") or key in ("ctrl_enabled", "use_fahrenheit", "scr_always_on"):
+    if key.endswith("_enabled") or key in ("ctrl_enabled", "use_fahrenheit",
+                                            "scr_always_on", "wifi_en", "ext_ctrl"):
         return "ON " if raw_val else "OFF"
     # Temperature stored as x10 — convert to degrees
     if key.endswith("_x10"):

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fermenter</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background:#111; color:#eee; }
+    h1 { font-weight: 600; }
+    .big { font-size: 1.8rem; }
+    .k { color:#8ad; }
+    .off { color:#666; }
+    b { color:#fff; }
+    code { color:#9c9; }
+  </style>
+</head>
+<body>
+  <h1>🍶 Fermenter</h1>
+  <div id="live" class="off">lade …</div>
+
+  <p style="margin-top:2rem; color:#666">
+    Phase 1 — Live-Status &amp; Logging aktiv. Charts und Kurven-Editor folgen.
+  </p>
+
+  <script>
+    async function tick() {
+      try {
+        const d = await (await fetch('/api/status')).json();
+        const t = d.telemetry || {}, sp = d.setpoints || {}, p = d.profile || {};
+        const fmt = v => (v === null || v === undefined) ? '--' : v;
+        document.getElementById('live').className = '';
+        document.getElementById('live').innerHTML = `
+          <p class="big">Kern <b>${fmt(t.core)} °C</b> &nbsp;·&nbsp;
+             Kammer ${fmt(t.chamber)} °C &nbsp;·&nbsp; RH ${fmt(t.rh)} %</p>
+          <p>Heizung <b>${t.heater ? 'AN' : 'aus'}</b> &nbsp;·&nbsp;
+             Lüfter <code>${fmt(t.fan)}</code> (${fmt(t.fan1)}/${fmt(t.fan2)} %)
+             ${t.chamber_alarm ? '&nbsp;⚠️ OVERTEMP' : ''}
+             ${t.core_fault ? '&nbsp;⚠️ CORE SENSOR' : ''}</p>
+          <p class="k">Profil: ${p.running ? ('läuft · ' + Math.round(p.elapsed) + ' s') : 'gestoppt'}
+             &nbsp;·&nbsp; ESP32-Modus: ${t.ext ? 'extern (Pi)' : 'lokal'}</p>
+          <p class="k">Soll: Heat ${fmt(sp.heat_lower)}–${fmt(sp.heat_upper)} °C,
+             MinRoom ${fmt(sp.min_room)} °C, Cool ${fmt(sp.temp_upper)} °C,
+             RH ${fmt(sp.rh_lower)}–${fmt(sp.rh_upper)} %</p>`;
+      } catch (e) {
+        const el = document.getElementById('live');
+        el.className = 'off'; el.textContent = 'offline';
+      }
+    }
+    setInterval(tick, 2000); tick();
+  </script>
+</body>
+</html>
