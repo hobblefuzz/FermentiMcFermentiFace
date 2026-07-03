@@ -16,6 +16,7 @@ Endpoints:
 """
 
 import os
+import json
 import time
 import sqlite3
 from flask import Flask, request, jsonify, render_template
@@ -27,6 +28,7 @@ DATA = os.path.join(HERE, "data")
 os.makedirs(DATA, exist_ok=True)
 DB           = os.path.join(DATA, "telemetry.db")
 PROFILE_FILE = os.path.join(DATA, "profile.json")
+MANUAL_FILE  = os.path.join(DATA, "manual.json")
 
 app = Flask(__name__)
 
@@ -43,7 +45,18 @@ manual = {
     "rh_pwm_f1": 50, "rh_pwm_f2": 50,
     "idle_pwm_f1": 50, "idle_pwm_f2": 50,
 }
+try:
+    with open(MANUAL_FILE) as f:
+        manual.update(json.load(f))
+except Exception:
+    pass
+
 last_telemetry = {}
+
+
+def _save_manual():
+    with open(MANUAL_FILE, "w") as f:
+        json.dump(manual, f, indent=2)
 
 
 def _db():
@@ -107,9 +120,9 @@ def log():
 
 @app.route("/api/manual", methods=["GET", "POST"])
 def api_manual():
-    global manual
     if request.method == "POST":
         manual.update(request.get_json(force=True) or {})
+        _save_manual()
     return jsonify(manual)
 
 

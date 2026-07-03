@@ -4,49 +4,75 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fermenter</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; background:#111; color:#eee; }
-    h1 { font-weight: 600; }
-    .big { font-size: 1.8rem; }
-    .k { color:#8ad; }
-    .off { color:#666; }
-    b { color:#fff; }
-    code { color:#9c9; }
-  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>🍶 Fermenter</h1>
-  <div id="live" class="off">lade …</div>
+  <header>
+    <h1>🍶 Fermenter</h1>
+    <div id="live" class="live off">lade …</div>
+  </header>
 
-  <p style="margin-top:2rem; color:#666">
-    Phase 1 — Live-Status &amp; Logging aktiv. Charts und Kurven-Editor folgen.
-  </p>
+  <!-- ── Chart ─────────────────────────────────────────── -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Verlauf</h2>
+      <div class="ranges" id="ranges">
+        <button data-min="15">15 min</button>
+        <button data-min="60" class="active">1 h</button>
+        <button data-min="360">6 h</button>
+        <button data-min="1440">24 h</button>
+      </div>
+    </div>
+    <canvas id="chart" width="900" height="320"></canvas>
+    <div class="legend">
+      <span class="lg core">Kern °C</span>
+      <span class="lg cham">Kammer °C</span>
+      <span class="lg rh">RH %</span>
+      <span class="lg heat">Heizung</span>
+    </div>
+  </section>
 
-  <script>
-    async function tick() {
-      try {
-        const d = await (await fetch('/api/status')).json();
-        const t = d.telemetry || {}, sp = d.setpoints || {}, p = d.profile || {};
-        const fmt = v => (v === null || v === undefined) ? '--' : v;
-        document.getElementById('live').className = '';
-        document.getElementById('live').innerHTML = `
-          <p class="big">Kern <b>${fmt(t.core)} °C</b> &nbsp;·&nbsp;
-             Kammer ${fmt(t.chamber)} °C &nbsp;·&nbsp; RH ${fmt(t.rh)} %</p>
-          <p>Heizung <b>${t.heater ? 'AN' : 'aus'}</b> &nbsp;·&nbsp;
-             Lüfter <code>${fmt(t.fan)}</code> (${fmt(t.fan1)}/${fmt(t.fan2)} %)
-             ${t.chamber_alarm ? '&nbsp;⚠️ OVERTEMP' : ''}
-             ${t.core_fault ? '&nbsp;⚠️ CORE SENSOR' : ''}</p>
-          <p class="k">Profil: ${p.running ? ('läuft · ' + Math.round(p.elapsed) + ' s') : 'gestoppt'}
-             &nbsp;·&nbsp; ESP32-Modus: ${t.ext ? 'extern (Pi)' : 'lokal'}</p>
-          <p class="k">Soll: Heat ${fmt(sp.heat_lower)}–${fmt(sp.heat_upper)} °C,
-             MinRoom ${fmt(sp.min_room)} °C, Cool ${fmt(sp.temp_upper)} °C,
-             RH ${fmt(sp.rh_lower)}–${fmt(sp.rh_upper)} %</p>`;
-      } catch (e) {
-        const el = document.getElementById('live');
-        el.className = 'off'; el.textContent = 'offline';
-      }
-    }
-    setInterval(tick, 2000); tick();
-  </script>
+  <!-- ── Profile editor ────────────────────────────────── -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Kurve / Profil</h2>
+      <div id="profState" class="pill">–</div>
+    </div>
+    <table id="profTable">
+      <thead>
+        <tr>
+          <th>Zeit (h)</th>
+          <th>Heat on</th><th>Heat off</th><th>Min room</th>
+          <th>Cool on</th><th>Cool off</th>
+          <th>RH low</th><th>RH high</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="profBody"></tbody>
+    </table>
+    <p class="hint">Leere Felder werden vom vorherigen Zeitpunkt übernommen (Forward-Merge).
+       „Cool on/off" = Lüfter EIN/AUS-Schwelle.</p>
+    <div class="btns">
+      <button id="addPoint">+ Zeitpunkt</button>
+      <button id="saveProf">Speichern</button>
+      <button id="startProf" class="go">▶ Start</button>
+      <button id="stopProf" class="stop">■ Stop</button>
+    </div>
+  </section>
+
+  <!-- ── Manual base setpoints ─────────────────────────── -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Basis-Sollwerte (manuell)</h2>
+      <span class="hint">gelten, wenn kein Profil läuft — und als Basis fürs Profil</span>
+    </div>
+    <div id="manualForm" class="grid"></div>
+    <div class="btns">
+      <button id="saveManual">Speichern</button>
+    </div>
+  </section>
+
+  <footer>ESP32 behält die Kontrolle &amp; alle Sicherheitsfunktionen — dieses Dashboard steuert nur die Sollwerte.</footer>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>
