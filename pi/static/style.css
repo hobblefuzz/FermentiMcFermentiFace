@@ -61,6 +61,7 @@ th, td { padding:.35rem .3rem; text-align:center; border-bottom:1px solid var(--
 th { color:var(--dim); font-weight:600; }
 #profBody input { width:100%; max-width:70px; background:#0c0f13; border:1px solid var(--line);
   color:var(--fg); border-radius:6px; padding:.3rem; text-align:center; }
+#profBody input.pt-name { max-width:130px; text-align:left; }
 #profBody button { padding:.2rem .5rem; }
 
 .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:.6rem .9rem; }

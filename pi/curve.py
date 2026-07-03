@@ -47,12 +47,31 @@ class Profile:
                 break
         return merged
 
+    def current_index(self):
+        """Index of the active step (last one whose offset has elapsed)."""
+        e = self.elapsed()
+        idx = -1
+        for i, p in enumerate(self.points):
+            if p.get("t", 0) <= e:
+                idx = i
+            else:
+                break
+        return idx
+
+    def current_name(self):
+        i = self.current_index()
+        if i < 0:
+            return ""
+        return self.points[i].get("name") or ("Schritt " + str(i + 1))
+
     # ------------------------------------------------------------ persist
     def to_dict(self):
         return {
-            "points":  self.points,
-            "running": self.running,
-            "elapsed": round(self.elapsed(), 1),
+            "points":     self.points,
+            "running":    self.running,
+            "elapsed":    round(self.elapsed(), 1),
+            "started_at": self.started_at,
+            "step":       self.current_name() if self.running else "",
         }
 
     def load(self, path):

@@ -54,12 +54,12 @@ async function pollStatus() {
     h += tile("Heizung", t.heater ? "AN" : "aus", t.heater ? "hot" : "");
     h += tile("Lüfter", fmt(t.fan));
     h += tile("Modus", t.ext ? "extern" : "lokal");
-    h += tile("Profil", p.running ? ("läuft · " + fmtDur(p.elapsed)) : "gestoppt", p.running ? "run" : "");
+    h += tile("Profil", p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt", p.running ? "run" : "");
     if (t.chamber_alarm) h += tile("Alarm", "OVERTEMP", "alarm");
     if (t.core_fault) h += tile("Alarm", "Kern-Sensor", "alarm");
     live.className = "stats";
     live.innerHTML = h;
-    profState.textContent = p.running ? ("läuft · " + fmtDur(p.elapsed)) : "gestoppt";
+    profState.textContent = p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt";
     profState.className = "pill" + (p.running ? " run" : "");
   } catch (e) {
     live.className = "stats off";
@@ -229,11 +229,13 @@ canvas.addEventListener("mouseleave", hideTip);
 
 // ─────────────────────────────────────── profile editor
 function pointRow(pt) {
-  pt = pt || { t: 0, setpoints: {} };
+  pt = pt || { t: 0, name: "", setpoints: {} };
   const sp = pt.setpoints || {};
+  const nameVal = (pt.name || "").replace(/"/g, "&quot;");
   const tr = document.createElement("tr");
   tr.innerHTML =
     `<td><input type="number" step="0.5" class="pt-t" value="${(pt.t || 0) / 3600}"></td>` +
+    `<td><input type="text" class="pt-name" placeholder="z.B. Kirikaeshi" value="${nameVal}"></td>` +
     TEMP_FIELDS.map(([k]) => `<td><input type="number" step="0.1" data-k="${k}" value="${sp[k] ?? ""}"></td>`).join("") +
     `<td><button class="rm">✕</button></td>`;
   tr.querySelector(".rm").onclick = () => tr.remove();
@@ -249,11 +251,12 @@ function collectProfile() {
   const points = [];
   [...profBody.children].forEach(tr => {
     const t = (parseFloat(tr.querySelector(".pt-t").value) || 0) * 3600;
+    const name = tr.querySelector(".pt-name").value.trim();
     const sp = {};
     tr.querySelectorAll("input[data-k]").forEach(inp => {
       if (inp.value !== "") { const v = parseFloat(inp.value); if (!isNaN(v)) sp[inp.dataset.k] = v; }
     });
-    points.push({ t, setpoints: sp });
+    points.push({ t, name, setpoints: sp });
   });
   return points;
 }
@@ -263,6 +266,50 @@ async function saveProfile() {
     body: JSON.stringify({ points: collectProfile() }),
   });
   flash($("saveProf"));
+}
+
+// ─────────────────────────────────────── calendar export (.ics)
+const pad2 = n => ("0" + n).slice(-2);
+const icsTime = e => {
+  const d = new Date(e * 1000);
+  return d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) + "T" +
+         pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()) + pad2(d.getUTCSeconds()) + "Z";
+};
+const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+
+function stepDesc(p) {
+  const sp = p.setpoints || {}, parts = [];
+  if (sp.heat_lower != null || sp.heat_upper != null)
+    parts.push(`Heizen ${sp.heat_lower ?? "?"}-${sp.heat_upper ?? "?"} C`);
+  if (sp.temp_upper != null) parts.push(`Lüften ab ${sp.temp_upper} C`);
+  if (sp.rh_lower != null || sp.rh_upper != null)
+    parts.push(`RH ${sp.rh_lower ?? "?"}-${sp.rh_upper ?? "?"} %`);
+  return "Reis umrühren / Feuchte verteilen." + (parts.length ? " Sollwerte: " + parts.join(", ") : "");
+}
+
+function buildICS(points, startEpoch) {
+  let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
+            "PRODID:-//FermentiMcFermentiFace//Koji//DE\r\nCALSCALE:GREGORIAN\r\n";
+  points.forEach((p, i) => {
+    const title = p.name || ("Schritt " + (i + 1));
+    ics += "BEGIN:VEVENT\r\n" +
+      "UID:koji-" + startEpoch + "-" + i + "@fermentimcfermentiface\r\n" +
+      "DTSTAMP:" + icsTime(startEpoch) + "\r\n" +
+      "DTSTART:" + icsTime(startEpoch + (p.t || 0)) + "\r\n" +
+      "DURATION:PT15M\r\n" +
+      "SUMMARY:" + icsEsc("Koji: " + title) + "\r\n" +
+      "DESCRIPTION:" + icsEsc(stepDesc(p)) + "\r\n" +
+      "BEGIN:VALARM\r\nTRIGGER:-PT5M\r\nACTION:DISPLAY\r\n" +
+      "DESCRIPTION:" + icsEsc("Koji: " + title) + "\r\nEND:VALARM\r\n" +
+      "END:VEVENT\r\n";
+  });
+  return ics + "END:VCALENDAR\r\n";
+}
+
+function download(name, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 // ─────────────────────────────────────── manual setpoints
@@ -295,7 +342,13 @@ async function saveManual() {
 // ─────────────────────────────────────── wiring + loops
 $("addPoint").onclick = () => profBody.appendChild(pointRow());
 $("saveProf").onclick = saveProfile;
-$("startProf").onclick = async () => { await saveProfile(); await fetch("/api/profile/start", { method: "POST" }); pollStatus(); };
+$("startProf").onclick = async () => {
+  await saveProfile();
+  const d = await (await fetch("/api/profile/start", { method: "POST" })).json();
+  pollStatus();
+  const startEpoch = d.started_at || (Date.now() / 1000);
+  if (d.points && d.points.length) download("koji-profil.ics", buildICS(d.points, startEpoch), "text/calendar");
+};
 $("stopProf").onclick = async () => { await fetch("/api/profile/stop", { method: "POST" }); pollStatus(); };
 $("saveManual").onclick = saveManual;
 
