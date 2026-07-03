@@ -1,0 +1,18 @@
+# Secrets — never commit WiFi credentials
+secrets.py
+pi/secrets.py
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime data (Pi side)
+pi/data/*.db
+pi/data/*.csv
+pi/data/*.sqlite
+
+# OS
+.DS_Store
+
+# Blog images (large binaries)
+images/
