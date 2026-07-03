@@ -65,8 +65,15 @@ def _db():
     c = sqlite3.connect(DB)
     c.execute("""CREATE TABLE IF NOT EXISTS telemetry (
         ts REAL, core REAL, chamber REAL, rh REAL,
-        heater INTEGER, fan1 INTEGER, fan2 INTEGER)""")
+        heater INTEGER, fan1 INTEGER, fan2 INTEGER, fan TEXT)""")
     return c
+
+
+# Migrate older DBs that predate the `fan` (fan status) column.
+try:
+    _c = _db(); _c.execute("ALTER TABLE telemetry ADD COLUMN fan TEXT"); _c.commit(); _c.close()
+except Exception:
+    pass
 
 
 def current_setpoints():
@@ -84,9 +91,11 @@ def poll():
     last_telemetry = tel
     try:
         c = _db()
-        c.execute("INSERT INTO telemetry VALUES (?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO telemetry (ts,core,chamber,rh,heater,fan1,fan2,fan) "
+                  "VALUES (?,?,?,?,?,?,?,?)",
                   (time.time(), tel.get("core"), tel.get("chamber"), tel.get("rh"),
-                   1 if tel.get("heater") else 0, tel.get("fan1"), tel.get("fan2")))
+                   1 if tel.get("heater") else 0, tel.get("fan1"), tel.get("fan2"),
+                   tel.get("fan")))
         c.commit()
         c.close()
     except Exception as e:
@@ -112,12 +121,12 @@ def log():
     since = float(request.args.get("since", time.time() - 3600))
     c = _db()
     rows = c.execute(
-        "SELECT ts,core,chamber,rh,heater,fan1,fan2 FROM telemetry "
+        "SELECT ts,core,chamber,rh,heater,fan1,fan2,fan FROM telemetry "
         "WHERE ts>=? ORDER BY ts", (since,)).fetchall()
     c.close()
     return jsonify([
         {"ts": r[0], "core": r[1], "chamber": r[2], "rh": r[3],
-         "heater": r[4], "fan1": r[5], "fan2": r[6]} for r in rows])
+         "heater": r[4], "fan1": r[5], "fan2": r[6], "fan": r[7]} for r in rows])
 
 
 @app.route("/api/manual", methods=["GET", "POST"])

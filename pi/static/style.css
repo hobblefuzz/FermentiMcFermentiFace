@@ -1,6 +1,7 @@
 :root {
   --bg:#0f1216; --card:#171c22; --line:#2a323c; --fg:#e6e9ee; --dim:#8b97a6;
   --core:#ff6b5e; --cham:#5aa9ff; --rh:#4fd08a; --heat:#ffb347;
+  --fan-t:#ff5c57; --fan-rh:#4fd08a; --fan-i:#b07bff;
   --go:#2e9e5b; --stop:#b5453d; --accent:#5aa9ff;
 }
 * { box-sizing:border-box; }
@@ -37,6 +38,8 @@ canvas { width:100%; height:auto; display:block; background:#0c0f13; border-radi
 .lg::before { content:"■ "; }
 .lg.core::before { color:var(--core); } .lg.cham::before { color:var(--cham); }
 .lg.rh::before { color:var(--rh); }     .lg.heat::before { color:var(--heat); }
+.lg.ft::before { color:var(--fan-t); }  .lg.frh::before { color:var(--fan-rh); }
+.lg.fi::before { color:var(--fan-i); }
 
 table { width:100%; border-collapse:collapse; font-size:.9rem; }
 th, td { padding:.35rem .3rem; text-align:center; border-bottom:1px solid var(--line); }

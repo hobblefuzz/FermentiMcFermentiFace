@@ -23,6 +23,12 @@ const live = $("live"), profState = $("profState"), profBody = $("profBody"),
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = v => (v === null || v === undefined) ? "--" : v;
 
+// Parse the fan status string ("R--", "-T-", "RTI", "EMG", "OFF", …) into flags.
+function fanFlags(s) {
+  s = s || "";
+  return { rh: s.indexOf("R") >= 0, t: s.indexOf("T") >= 0 || s === "EMG", i: s.indexOf("I") >= 0 };
+}
+
 function fmtDur(s) {
   s = Math.round(s);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -68,7 +74,7 @@ async function pollLog() {
 function drawChart(rows) {
   const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  const pad = { l: 44, r: 44, t: 12, b: 26 };
+  const pad = { l: 44, r: 44, t: 12, b: 44 };
   const x0 = pad.l, x1 = W - pad.r, y0 = H - pad.b, y1 = pad.t;
   ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
@@ -95,14 +101,27 @@ function drawChart(rows) {
     ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y);
     ctx.textAlign = "left"; ctx.fillStyle = css("--rh"); ctx.fillText((100 * i / steps).toFixed(0), x1 + 6, syR(100 * i / steps));
   }
-  // heater on = orange strip along the bottom
-  ctx.fillStyle = css("--heat"); ctx.globalAlpha = 0.75;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i - 1].heater) {
-      const xa = sx(rows[i - 1].ts), xb = sx(rows[i].ts);
-      ctx.fillRect(xa, y0 - 6, Math.max(1, xb - xa), 5);
+  // Activity bands below the plot: heater + the three fan reasons.
+  const bandDefs = [
+    ["H", css("--heat"),   r => !!r.heater],
+    ["T", css("--fan-t"),  r => fanFlags(r.fan).t],
+    ["R", css("--fan-rh"), r => fanFlags(r.fan).rh],
+    ["I", css("--fan-i"),  r => fanFlags(r.fan).i],
+  ];
+  const bandH = 4, bandGap = 1, bandTop = y0 + 5;
+  ctx.font = "9px system-ui"; ctx.textBaseline = "middle";
+  bandDefs.forEach((b, bi) => {
+    const by = bandTop + bi * (bandH + bandGap);
+    ctx.fillStyle = b[1];
+    ctx.globalAlpha = 0.8; ctx.textAlign = "right"; ctx.fillText(b[0], x0 - 5, by + bandH / 2);
+    ctx.globalAlpha = 0.85;
+    for (let i = 1; i < rows.length; i++) {
+      if (b[2](rows[i - 1])) {
+        const xa = sx(rows[i - 1].ts), xb = sx(rows[i].ts);
+        ctx.fillRect(xa, by, Math.max(1, xb - xa), bandH);
+      }
     }
-  }
+  });
   ctx.globalAlpha = 1;
   // series
   const line = (key, sy, color, dash) => {
@@ -119,11 +138,12 @@ function drawChart(rows) {
   line("core", syT, css("--core"));
   line("chamber", syT, css("--cham"));
   line("rh", syR, css("--rh"), [4, 3]);
-  // time labels
+  // time labels (below the activity bands)
   ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const labelY = bandTop + bandDefs.length * (bandH + bandGap) + 2;
   for (let i = 0; i <= steps; i++) {
     const ts = t0 + tSpan * i / steps, d = new Date(ts * 1000);
-    ctx.fillText(("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2), sx(ts), y0 + 6);
+    ctx.fillText(("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2), sx(ts), labelY);
   }
 }
 
