@@ -14,10 +14,14 @@ header { display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap; margin-bo
 h1 { font-size:1.5rem; margin:0; }
 h2 { font-size:1rem; margin:0; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
 
-.live { font-size:1.05rem; }
-.live.off { color:var(--dim); }
-.live b { color:#fff; }
-.warn { color:var(--heat); font-weight:600; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:.6rem; }
+.stats.off { opacity:.6; }
+.stat { background:#0c0f13; border:1px solid var(--line); border-radius:10px; padding:.55rem .7rem; }
+.stat .lbl { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+.stat .val { font-size:1.35rem; font-weight:600; color:#fff; margin-top:.15rem; }
+.stat.hot   { border-color:var(--heat); } .stat.hot .val   { color:var(--heat); }
+.stat.run   { border-color:var(--go);   } .stat.run .val   { color:#7ee0a3; }
+.stat.alarm { border-color:var(--stop); } .stat.alarm .val { color:#ff8a80; }
 
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1.1rem; }
 .card-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.8rem; flex-wrap:wrap; }

@@ -40,28 +40,44 @@ function flash(btn) {
 }
 
 // ─────────────────────────────────────── live status
+function tile(lbl, val, cls) {
+  return `<div class="stat ${cls || ""}"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
+}
 async function pollStatus() {
   try {
     const d = await (await fetch("/api/status")).json();
     const t = d.telemetry || {}, p = d.profile || {};
-    let warn = "";
-    if (t.chamber_alarm) warn += ' <span class="warn">⚠ OVERTEMP</span>';
-    if (t.core_fault) warn += ' <span class="warn">⚠ CORE SENSOR</span>';
-    live.className = "live";
-    live.innerHTML =
-      `Kern <b>${fmt(t.core)}°C</b> · Kammer ${fmt(t.chamber)}°C · RH ${fmt(t.rh)}% · ` +
-      `Heizung <b>${t.heater ? "AN" : "aus"}</b> · Lüfter ${fmt(t.fan)} · ` +
-      `Modus ${t.ext ? "extern" : "lokal"}${warn}`;
+    let h = "";
+    h += tile("Kern", fmt(t.core) + " °C");
+    h += tile("Kammer", fmt(t.chamber) + " °C");
+    h += tile("Luftfeuchte", fmt(t.rh) + " %");
+    h += tile("Heizung", t.heater ? "AN" : "aus", t.heater ? "hot" : "");
+    h += tile("Lüfter", fmt(t.fan));
+    h += tile("Modus", t.ext ? "extern" : "lokal");
+    h += tile("Profil", p.running ? ("läuft · " + fmtDur(p.elapsed)) : "gestoppt", p.running ? "run" : "");
+    if (t.chamber_alarm) h += tile("Alarm", "OVERTEMP", "alarm");
+    if (t.core_fault) h += tile("Alarm", "Kern-Sensor", "alarm");
+    live.className = "stats";
+    live.innerHTML = h;
     profState.textContent = p.running ? ("läuft · " + fmtDur(p.elapsed)) : "gestoppt";
     profState.className = "pill" + (p.running ? " run" : "");
   } catch (e) {
-    live.className = "live off"; live.textContent = "Server offline";
+    live.className = "stats off";
+    live.innerHTML = '<div class="stat"><div class="val">Server offline</div></div>';
   }
 }
 
 // ─────────────────────────────────────── chart
 let rangeMin = 60;
-function fitCanvas() { canvas.width = canvas.clientWidth || 900; canvas.height = 320; }
+let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
+function fitCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  CW = canvas.clientWidth || 900;
+  canvas.width = Math.round(CW * dpr);   // backing store scaled for crisp lines
+  canvas.height = Math.round(CH * dpr);
+  canvas.style.height = CH + "px";
+  canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);  // draw in CSS px
+}
 
 async function pollLog() {
   try {
@@ -72,9 +88,9 @@ async function pollLog() {
 }
 
 function drawChart(rows) {
-  const ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext("2d"), W = CW, H = CH;
   ctx.clearRect(0, 0, W, H);
-  const pad = { l: 44, r: 44, t: 12, b: 44 };
+  const pad = { l: 44, r: 44, t: 12, b: 60 };
   const x0 = pad.l, x1 = W - pad.r, y0 = H - pad.b, y1 = pad.t;
   ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
@@ -108,12 +124,12 @@ function drawChart(rows) {
     ["R", css("--fan-rh"), r => fanFlags(r.fan).rh],
     ["I", css("--fan-i"),  r => fanFlags(r.fan).i],
   ];
-  const bandH = 4, bandGap = 1, bandTop = y0 + 5;
-  ctx.font = "9px system-ui"; ctx.textBaseline = "middle";
+  const bandH = 6, bandGap = 3, bandTop = y0 + 8;
+  ctx.font = "10px system-ui"; ctx.textBaseline = "middle";
   bandDefs.forEach((b, bi) => {
     const by = bandTop + bi * (bandH + bandGap);
     ctx.fillStyle = b[1];
-    ctx.globalAlpha = 0.8; ctx.textAlign = "right"; ctx.fillText(b[0], x0 - 5, by + bandH / 2);
+    ctx.globalAlpha = 0.85; ctx.textAlign = "right"; ctx.fillText(b[0], x0 - 6, by + bandH / 2);
     ctx.globalAlpha = 0.85;
     for (let i = 1; i < rows.length; i++) {
       if (b[2](rows[i - 1])) {
@@ -123,21 +139,26 @@ function drawChart(rows) {
     }
   });
   ctx.globalAlpha = 1;
-  // series
-  const line = (key, sy, color, dash) => {
-    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.setLineDash(dash || []);
-    ctx.beginPath(); let started = false;
-    rows.forEach(r => {
-      const v = r[key];
-      if (v == null) { started = false; return; }
-      const X = sx(r.ts), Y = sy(v);
-      if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
-    });
-    ctx.stroke(); ctx.setLineDash([]);
+  // series — smoothed (quadratic curve through segment midpoints), split on gaps
+  const smooth = pts => {
+    if (pts.length < 3) { pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); return; }
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+    }
+    const n = pts.length - 1; ctx.lineTo(pts[n].x, pts[n].y);
   };
-  line("core", syT, css("--core"));
-  line("chamber", syT, css("--cham"));
-  line("rh", syR, css("--rh"), [4, 3]);
+  const series = (key, sy, color, dash) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.setLineDash(dash || []);
+    let seg = [];
+    const flush = () => { if (seg.length) { ctx.beginPath(); smooth(seg); ctx.stroke(); seg = []; } };
+    rows.forEach(r => { const v = r[key]; if (v == null) { flush(); return; } seg.push({ x: sx(r.ts), y: sy(v) }); });
+    flush(); ctx.setLineDash([]);
+  };
+  series("core", syT, css("--core"));
+  series("chamber", syT, css("--cham"));
+  series("rh", syR, css("--rh"), [5, 4]);
   // time labels (below the activity bands)
   ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
   const labelY = bandTop + bandDefs.length * (bandH + bandGap) + 2;
