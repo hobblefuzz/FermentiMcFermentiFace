@@ -18,7 +18,7 @@ const PWM_FIELDS = [
 
 const $ = id => document.getElementById(id);
 const live = $("live"), profState = $("profState"), profBody = $("profBody"),
-      ranges = $("ranges"), canvas = $("chart");
+      ranges = $("ranges"), canvas = $("chart"), tip = $("tip");
 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = v => (v === null || v === undefined) ? "--" : v;
@@ -69,6 +69,7 @@ async function pollStatus() {
 
 // ─────────────────────────────────────── chart
 let rangeMin = 60;
+let lastRows = [], plot = null;  // last drawn data + scale info for hover
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -83,6 +84,7 @@ async function pollLog() {
   try {
     const since = Date.now() / 1000 - rangeMin * 60;
     const rows = await (await fetch("/api/log?since=" + since)).json();
+    lastRows = rows;
     drawChart(rows);
   } catch (e) { /* keep last frame */ }
 }
@@ -96,7 +98,7 @@ function drawChart(rows) {
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
   if (!rows.length) {
     ctx.fillStyle = css("--dim"); ctx.textAlign = "left";
-    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); return;
+    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); plot = null; return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
   let temps = [];
@@ -166,7 +168,64 @@ function drawChart(rows) {
     const ts = t0 + tSpan * i / steps, d = new Date(ts * 1000);
     ctx.fillText(("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2), sx(ts), labelY);
   }
+
+  plot = { rows, t0, tSpan, x0, x1, y0, y1, sx, syT, syR };
 }
+
+// ─────────────────────────────────────── hover tooltip
+function nearestRow(mx) {
+  const r = plot.rows;
+  const t = plot.t0 + (mx - plot.x0) / (plot.x1 - plot.x0) * plot.tSpan;
+  let lo = 0, hi = r.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (r[m].ts < t) lo = m + 1; else hi = m; }
+  if (lo > 0 && Math.abs(r[lo - 1].ts - t) < Math.abs(r[lo].ts - t)) lo -= 1;
+  return r[lo];
+}
+
+function drawHover(row) {
+  const ctx = canvas.getContext("2d"), px = plot.sx(row.ts);
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(px, plot.y1); ctx.lineTo(px, plot.y0); ctx.stroke();
+  ctx.setLineDash([]);
+  const dot = (v, sy, color) => {
+    if (v == null) return;
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, sy(v), 3.4, 0, 6.29); ctx.fill();
+    ctx.strokeStyle = "#0c0f13"; ctx.lineWidth = 1.2; ctx.stroke();
+  };
+  dot(row.core, plot.syT, css("--core"));
+  dot(row.chamber, plot.syT, css("--cham"));
+  dot(row.rh, plot.syR, css("--rh"));
+  ctx.restore();
+}
+
+function hideTip() {
+  tip.hidden = true;
+  if (lastRows.length) drawChart(lastRows);
+}
+
+function onHover(e) {
+  if (!plot || !plot.rows.length) { hideTip(); return; }
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (CW / rect.width);
+  if (mx < plot.x0 || mx > plot.x1) { hideTip(); return; }
+  const row = nearestRow(mx);
+  drawChart(lastRows);      // redraw base, then overlay crosshair
+  drawHover(row);
+  const d = new Date(row.ts * 1000);
+  const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
+  tip.innerHTML =
+    `<div class="t">${clock}</div>` +
+    `<div class="trow"><span>Kern</span><b class="core">${fmt(row.core)} °C</b></div>` +
+    `<div class="trow"><span>Kammer</span><b class="cham">${fmt(row.chamber)} °C</b></div>` +
+    `<div class="trow"><span>RH</span><b class="rh">${fmt(row.rh)} %</b></div>`;
+  tip.hidden = false;
+  const cssX = plot.sx(row.ts) * (rect.width / CW);
+  tip.style.left = Math.max(60, Math.min(rect.width - 60, cssX)) + "px";
+}
+
+canvas.addEventListener("mousemove", onHover);
+canvas.addEventListener("mouseleave", hideTip);
 
 // ─────────────────────────────────────── profile editor
 function pointRow(pt) {

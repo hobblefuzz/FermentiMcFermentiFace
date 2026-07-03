@@ -36,7 +36,18 @@ h2 { font-size:1rem; margin:0; font-weight:600; color:var(--dim); text-transform
 .btns button.stop { background:var(--stop); border-color:var(--stop); color:#fff; }
 button:hover { filter:brightness(1.12); }
 
+.chart-wrap { position:relative; }
 canvas { width:100%; height:auto; display:block; background:#0c0f13; border-radius:8px; }
+
+.tip {
+  position:absolute; top:6px; transform:translateX(-50%); pointer-events:none; z-index:2;
+  background:rgba(12,15,19,.95); border:1px solid var(--line); border-radius:8px;
+  padding:.4rem .6rem; font-size:.8rem; color:var(--fg); white-space:nowrap;
+}
+.tip[hidden] { display:none; }
+.tip .t { color:var(--dim); margin-bottom:.25rem; }
+.tip .trow { display:flex; gap:1.1rem; justify-content:space-between; }
+.tip b.core { color:var(--core); } .tip b.cham { color:var(--cham); } .tip b.rh { color:var(--rh); }
 
 .legend { display:flex; gap:1.1rem; margin-top:.6rem; font-size:.85rem; color:var(--dim); flex-wrap:wrap; }
 .lg::before { content:"■ "; }
