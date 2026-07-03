@@ -198,6 +198,24 @@ $("saveProf").onclick = saveProfile;
 $("startProf").onclick = async () => { await saveProfile(); await fetch("/api/profile/start", { method: "POST" }); pollStatus(); };
 $("stopProf").onclick = async () => { await fetch("/api/profile/stop", { method: "POST" }); pollStatus(); };
 $("saveManual").onclick = saveManual;
+
+function powerScreen(title, note) {
+  document.body.innerHTML =
+    `<div style="padding:3rem;font-family:system-ui;color:#e6e9ee;` +
+    `background:#0f1216;min-height:100vh"><h1>${title}</h1><p>${note}</p></div>`;
+}
+$("btnShutdown").onclick = async () => {
+  if (!confirm("Pi wirklich herunterfahren?")) return;
+  await fetch("/api/power/shutdown", { method: "POST" });
+  powerScreen("⏻ Pi fährt herunter …",
+    "Warte, bis die grüne LED am Pi aus ist — dann kannst du den Strom trennen.");
+};
+$("btnReboot").onclick = async () => {
+  if (!confirm("Pi neu starten?")) return;
+  await fetch("/api/power/reboot", { method: "POST" });
+  powerScreen("↻ Pi startet neu …", "Die Seite ist in ~30 s wieder erreichbar. Lade sie dann neu.");
+};
+
 ranges.querySelectorAll("button").forEach(b => b.onclick = () => {
   ranges.querySelectorAll("button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); rangeMin = +b.dataset.min; pollLog();

@@ -19,6 +19,8 @@ import os
 import json
 import time
 import sqlite3
+import threading
+import subprocess
 from flask import Flask, request, jsonify, render_template
 
 from curve import Profile
@@ -141,6 +143,18 @@ def profile_action(action):
     elif action == "stop":
         profile.stop()
     return jsonify(profile.to_dict())
+
+
+@app.route("/api/power/<action>", methods=["POST"])
+def power(action):
+    """Clean shutdown / reboot of the Pi.  Delayed by a second so the HTTP
+    response reaches the browser first.  Requires a sudoers rule allowing the
+    service user to run poweroff/reboot without a password (see README)."""
+    cmd = {"shutdown": ["sudo", "poweroff"], "reboot": ["sudo", "reboot"]}.get(action)
+    if not cmd:
+        return jsonify({"ok": False, "error": "unknown action"}), 400
+    threading.Timer(1.0, lambda: subprocess.Popen(cmd)).start()
+    return jsonify({"ok": True, "action": action})
 
 
 @app.route("/")

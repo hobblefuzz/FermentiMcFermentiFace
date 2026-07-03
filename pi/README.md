@@ -39,6 +39,27 @@ the setpoints.
 | GET/POST | `/api/manual` | manual setpoints (used when no profile runs) |
 | GET/POST | `/api/profile` | profile points `{"points":[{"t":sec,"setpoints":{...}}]}` |
 | POST | `/api/profile/start` · `/stop` | run control |
+| POST | `/api/power/shutdown` · `/reboot` | clean power off / restart |
+
+## Safe shutdown (dashboard button)
+
+The **System** card in the dashboard has *Herunterfahren* / *Neustart* buttons so
+you never need SSH to power the Pi down safely. The server runs `sudo poweroff`
+/ `sudo reboot`, so the service user needs a password-less sudo rule for exactly
+those two commands.
+
+Check the paths first, then add the rule:
+
+```bash
+which poweroff reboot          # usually /usr/sbin/poweroff, /usr/sbin/reboot
+echo "pi ALL=(ALL) NOPASSWD: /usr/sbin/poweroff, /usr/sbin/reboot" \
+  | sudo tee /etc/sudoers.d/fermenter
+sudo chmod 440 /etc/sudoers.d/fermenter
+sudo visudo -c                 # syntax check ("... parsed OK")
+```
+
+Replace `pi` with your username if different, and adjust the paths if `which`
+shows something else. After that, restart the service and the buttons work.
 
 ## Roadmap (Phase 2)
 
