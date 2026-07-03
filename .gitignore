@@ -7,9 +7,10 @@ __pycache__/
 *.pyc
 
 # Runtime data (Pi side)
-pi/data/*.db
-pi/data/*.csv
-pi/data/*.sqlite
+pi/data/
+
+# Claude Code local settings
+.claude/settings.local.json
 
 # OS
 .DS_Store
