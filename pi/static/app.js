@@ -125,11 +125,11 @@ function drawChart(rows) {
     ["I", css("--fan-i"),  r => fanFlags(r.fan).i],
   ];
   const bandH = 6, bandGap = 3, bandTop = y0 + 8;
-  ctx.font = "10px system-ui"; ctx.textBaseline = "middle";
+  ctx.font = "bold 11px system-ui"; ctx.textBaseline = "middle";
   bandDefs.forEach((b, bi) => {
     const by = bandTop + bi * (bandH + bandGap);
     ctx.fillStyle = b[1];
-    ctx.globalAlpha = 0.85; ctx.textAlign = "right"; ctx.fillText(b[0], x0 - 6, by + bandH / 2);
+    ctx.globalAlpha = 1; ctx.textAlign = "right"; ctx.fillText(b[0], x0 - 6, by + bandH / 2);
     ctx.globalAlpha = 0.85;
     for (let i = 1; i < rows.length; i++) {
       if (b[2](rows[i - 1])) {
