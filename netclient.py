@@ -36,7 +36,7 @@ _REMOTE_FIELDS = {
 }
 
 
-def _post_json(host, port, path, obj, timeout=4):
+def _post_json(host, port, path, obj, timeout=2):
     """Bare-bones HTTP/1.0 JSON POST with a hard socket timeout."""
     body = ujson.dumps(obj)
     addr = socket.getaddrinfo(host, port)[0][-1]
@@ -65,11 +65,13 @@ def _post_json(host, port, path, obj, timeout=4):
 
 
 class NetClient:
-    def __init__(self, cfg, host, port, poll_interval_s=5, fail_limit=3):
+    def __init__(self, cfg, host, port, poll_interval_s=5, fail_limit=3,
+                 poll_interval_off=30):
         self._cfg  = cfg
         self._host = host
         self._port = port
-        self.poll_interval_s = poll_interval_s
+        self.poll_interval_s   = poll_interval_s    # cadence when the Pi answers
+        self.poll_interval_off = poll_interval_off  # slow retry when unreachable
         self._fail_limit = fail_limit
         self._last_poll = time.ticks_ms() - poll_interval_s * 1000
         self._fails = 0
@@ -86,7 +88,10 @@ class NetClient:
             self.applying = False
 
     def due(self):
-        return time.ticks_diff(time.ticks_ms(), self._last_poll) >= self.poll_interval_s * 1000
+        # Back off to the slow cadence once the Pi has failed to answer
+        # repeatedly, so a dead Pi doesn't stall the loop every few seconds.
+        interval = self.poll_interval_off if self._fails >= self._fail_limit else self.poll_interval_s
+        return time.ticks_diff(time.ticks_ms(), self._last_poll) >= interval * 1000
 
     def poll(self, telemetry):
         self._last_poll = time.ticks_ms()
