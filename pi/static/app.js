@@ -64,6 +64,9 @@ async function pollStatus() {
     live.innerHTML = h;
     profState.textContent = p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt";
     profState.className = "pill" + (p.running ? " run" : "");
+    const lg = $("logToggle");
+    lg.textContent = "Logging: " + (d.logging ? "AN" : "AUS");
+    lg.className = d.logging ? "go" : "";
   } catch (e) {
     live.className = "stats off";
     live.innerHTML = '<div class="stat"><div class="val">Server offline</div></div>';
@@ -383,6 +386,13 @@ $("dlIcs").onclick = async () => {
   else alert("Keine Setpoints vorhanden.");
 };
 $("saveManual").onclick = saveManual;
+$("logToggle").onclick = async () => { await fetch("/api/logging/toggle", { method: "POST" }); pollStatus(); };
+$("csvExport").onclick = () => { location.href = "/api/export.csv"; };
+$("plotReset").onclick = async () => {
+  if (!confirm("Alle geloggten Daten unwiderruflich löschen (Plot + CSV)?")) return;
+  await fetch("/api/log/reset", { method: "POST" });
+  pollLog();
+};
 
 function powerScreen(title, note) {
   document.body.innerHTML =

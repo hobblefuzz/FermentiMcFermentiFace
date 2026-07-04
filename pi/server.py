@@ -16,12 +16,15 @@ Endpoints:
 """
 
 import os
+import io
+import csv
 import json
 import time
+import datetime
 import sqlite3
 import threading
 import subprocess
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 
 from curve import Profile
 
@@ -71,6 +74,7 @@ def _db():
 
 
 _last_step = -2   # index of the last-logged profile step (-2 = not running)
+logging_on = True # whether telemetry is written to the DB (auto-on at profile start)
 
 
 # Migrate older DBs that predate the `fan` (fan status) column.
@@ -90,35 +94,36 @@ def current_setpoints():
 # ------------------------------------------------------------------- routes
 @app.route("/api/poll", methods=["POST"])
 def poll():
-    global last_telemetry
+    global last_telemetry, _last_step
     tel = request.get_json(force=True, silent=True) or {}
     last_telemetry = tel
-    try:
-        c = _db()
-        c.execute("INSERT INTO telemetry (ts,core,chamber,rh,heater,fan1,fan2,fan) "
-                  "VALUES (?,?,?,?,?,?,?,?)",
-                  (time.time(), tel.get("core"), tel.get("chamber"), tel.get("rh"),
-                   1 if tel.get("heater") else 0, tel.get("fan1"), tel.get("fan2"),
-                   tel.get("fan")))
-        c.commit()
-        c.close()
-    except Exception as e:
-        print("[db] error:", e)
 
-    # Log profile step transitions as events (for chart markers + history)
-    global _last_step
-    if profile.running:
-        idx = profile.current_index()
-        if idx >= 0 and idx != _last_step:
-            _last_step = idx
-            try:
-                cc = _db()
-                cc.execute("INSERT INTO events VALUES (?,?)", (time.time(), profile.current_name()))
-                cc.commit(); cc.close()
-            except Exception as e:
-                print("[db] event error:", e)
-    else:
-        _last_step = -2
+    if logging_on:
+        try:
+            c = _db()
+            c.execute("INSERT INTO telemetry (ts,core,chamber,rh,heater,fan1,fan2,fan) "
+                      "VALUES (?,?,?,?,?,?,?,?)",
+                      (time.time(), tel.get("core"), tel.get("chamber"), tel.get("rh"),
+                       1 if tel.get("heater") else 0, tel.get("fan1"), tel.get("fan2"),
+                       tel.get("fan")))
+            c.commit()
+            c.close()
+        except Exception as e:
+            print("[db] error:", e)
+
+        # Log profile step transitions as events (chart markers + history)
+        if profile.running:
+            idx = profile.current_index()
+            if idx >= 0 and idx != _last_step:
+                _last_step = idx
+                try:
+                    cc = _db()
+                    cc.execute("INSERT INTO events VALUES (?,?)", (time.time(), profile.current_name()))
+                    cc.commit(); cc.close()
+                except Exception as e:
+                    print("[db] event error:", e)
+        else:
+            _last_step = -2
 
     return jsonify({
         "time": int(time.time()),
@@ -133,6 +138,7 @@ def status():
         "telemetry": last_telemetry,
         "profile":   profile.to_dict(),
         "setpoints": current_setpoints(),
+        "logging":   logging_on,
     })
 
 
@@ -167,10 +173,11 @@ def api_profile():
 
 @app.route("/api/profile/<action>", methods=["POST"])
 def profile_action(action):
-    global _last_step
+    global _last_step, logging_on
     if action == "start":
         profile.start()
         _last_step = -2          # ensure the first step is logged on next poll
+        logging_on = True        # auto-start logging with the profile
     elif action == "stop":
         profile.stop()
     return jsonify(profile.to_dict())
@@ -183,6 +190,46 @@ def events():
     rows = c.execute("SELECT ts,name FROM events WHERE ts>=? ORDER BY ts", (since,)).fetchall()
     c.close()
     return jsonify([{"ts": r[0], "name": r[1]} for r in rows])
+
+
+# ------------------------------------------------------------- logging control
+@app.route("/api/logging/<action>", methods=["POST"])
+def logging_ctl(action):
+    global logging_on
+    if action == "on":
+        logging_on = True
+    elif action == "off":
+        logging_on = False
+    elif action == "toggle":
+        logging_on = not logging_on
+    return jsonify({"logging": logging_on})
+
+
+@app.route("/api/log/reset", methods=["POST"])
+def log_reset():
+    c = _db()
+    c.execute("DELETE FROM telemetry")
+    c.execute("DELETE FROM events")
+    c.commit()
+    c.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/export.csv")
+def export_csv():
+    c = _db()
+    rows = c.execute("SELECT ts,core,chamber,rh,heater,fan1,fan2,fan "
+                     "FROM telemetry ORDER BY ts").fetchall()
+    c.close()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["timestamp", "datetime", "core_c", "chamber_c", "rh_pct",
+                "heater", "fan1_pct", "fan2_pct", "fan_state"])
+    for r in rows:
+        dt = datetime.datetime.fromtimestamp(r[0]).isoformat(sep=" ", timespec="seconds")
+        w.writerow([r[0], dt, r[1], r[2], r[3], r[4], r[5], r[6], r[7]])
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=fermenter_log.csv"})
 
 
 @app.route("/api/power/<action>", methods=["POST"])
