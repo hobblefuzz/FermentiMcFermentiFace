@@ -221,14 +221,25 @@ def export_csv():
     rows = c.execute("SELECT ts,core,chamber,rh,heater,fan1,fan2,fan "
                      "FROM telemetry ORDER BY ts").fetchall()
     c.close()
+
+    # German-Excel friendly: ';' as column separator, ',' as decimal point.
+    def de(v):
+        if v is None:
+            return ""
+        if isinstance(v, float):
+            return str(v).replace(".", ",")
+        return str(v)
+
     buf = io.StringIO()
-    w = csv.writer(buf)
+    buf.write("sep=;\r\n")                    # tells Excel the delimiter
+    w = csv.writer(buf, delimiter=";")
     w.writerow(["timestamp", "datetime", "core_c", "chamber_c", "rh_pct",
                 "heater", "fan1_pct", "fan2_pct", "fan_state"])
     for r in rows:
         dt = datetime.datetime.fromtimestamp(r[0]).isoformat(sep=" ", timespec="seconds")
-        w.writerow([r[0], dt, r[1], r[2], r[3], r[4], r[5], r[6], r[7]])
-    return Response(buf.getvalue(), mimetype="text/csv",
+        w.writerow([de(r[0]), dt, de(r[1]), de(r[2]), de(r[3]),
+                    de(r[4]), de(r[5]), de(r[6]), de(r[7])])
+    return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment; filename=fermenter_log.csv"})
 
 
