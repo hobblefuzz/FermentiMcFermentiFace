@@ -49,8 +49,8 @@ def _build_menu_tree():
     ]
     RH = [
         ("Toggle RH",    "rh_enabled",      "bool",  0,   1,   "",    1),
-        ("Lower limit",  "rh_lower",        "int",   0, 100,   "%",   1),
         ("Upper limit",  "rh_upper",        "int",   0, 100,   "%",   1),
+        ("Lower limit",  "rh_lower",        "int",   0, 100,   "%",   1),
         ("PWM Fan1",     "rh_pwm_f1",       "int",   0, 100,   "%",   1),
         ("PWM Fan2",     "rh_pwm_f2",       "int",   0, 100,   "%",   1),
         ("< Back",       "back"),

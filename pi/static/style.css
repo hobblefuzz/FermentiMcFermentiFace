@@ -64,11 +64,27 @@ th { color:var(--dim); font-weight:600; }
 #profBody input.pt-name { max-width:130px; text-align:left; }
 #profBody button { padding:.2rem .5rem; }
 
-.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:.6rem .9rem; }
-.grid label { display:flex; flex-direction:column; gap:.2rem; font-size:.82rem; color:var(--dim); }
-.grid input[type=number] { background:#0c0f13; border:1px solid var(--line); color:var(--fg);
-  border-radius:6px; padding:.35rem; }
-.grid label.chk { flex-direction:row; align-items:center; gap:.45rem; }
+.mgroups { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:.8rem; }
+.mgroup { background:#0c0f13; border:1px solid var(--line); border-radius:10px; padding:.7rem .8rem; }
+.mgroup h3 { margin:0 0 .55rem; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em;
+  color:var(--accent); font-weight:600; }
+.mgroup label { display:flex; flex-direction:column; gap:.2rem; font-size:.8rem; color:var(--dim);
+  margin-bottom:.45rem; }
+.mgroup label.chk { flex-direction:row; align-items:center; gap:.45rem; margin-bottom:.55rem; color:var(--fg); }
+.mgroup input[type=number] { background:#0f1216; border:1px solid var(--line); color:var(--fg);
+  border-radius:6px; padding:.32rem; }
+
+.htitle { display:flex; align-items:center; }
+.help { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+  margin-left:.45rem; border:1px solid var(--line); border-radius:50%; color:var(--dim);
+  font-size:.72rem; font-weight:600; cursor:help; position:relative; }
+.help:hover { color:var(--fg); border-color:var(--accent); }
+.help:hover::after {
+  content:attr(data-tip); position:absolute; left:0; top:135%; z-index:6; width:260px;
+  background:rgba(12,15,19,.98); border:1px solid var(--line); border-radius:8px;
+  padding:.5rem .6rem; font-size:.78rem; font-weight:400; color:var(--fg);
+  line-height:1.35; white-space:normal; box-shadow:0 6px 18px rgba(0,0,0,.45);
+}
 
 .pill { background:#222a33; border:1px solid var(--line); border-radius:20px; padding:.25rem .8rem; font-size:.85rem; }
 .pill.run { background:var(--go); color:#04140a; border-color:var(--go); font-weight:600; }

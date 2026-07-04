@@ -66,7 +66,11 @@ def _db():
     c.execute("""CREATE TABLE IF NOT EXISTS telemetry (
         ts REAL, core REAL, chamber REAL, rh REAL,
         heater INTEGER, fan1 INTEGER, fan2 INTEGER, fan TEXT)""")
+    c.execute("CREATE TABLE IF NOT EXISTS events (ts REAL, name TEXT)")
     return c
+
+
+_last_step = -2   # index of the last-logged profile step (-2 = not running)
 
 
 # Migrate older DBs that predate the `fan` (fan status) column.
@@ -100,6 +104,22 @@ def poll():
         c.close()
     except Exception as e:
         print("[db] error:", e)
+
+    # Log profile step transitions as events (for chart markers + history)
+    global _last_step
+    if profile.running:
+        idx = profile.current_index()
+        if idx >= 0 and idx != _last_step:
+            _last_step = idx
+            try:
+                cc = _db()
+                cc.execute("INSERT INTO events VALUES (?,?)", (time.time(), profile.current_name()))
+                cc.commit(); cc.close()
+            except Exception as e:
+                print("[db] event error:", e)
+    else:
+        _last_step = -2
+
     return jsonify({
         "time": int(time.time()),
         "running": profile.running,
@@ -147,11 +167,22 @@ def api_profile():
 
 @app.route("/api/profile/<action>", methods=["POST"])
 def profile_action(action):
+    global _last_step
     if action == "start":
         profile.start()
+        _last_step = -2          # ensure the first step is logged on next poll
     elif action == "stop":
         profile.stop()
     return jsonify(profile.to_dict())
+
+
+@app.route("/api/events")
+def events():
+    since = float(request.args.get("since", time.time() - 3600))
+    c = _db()
+    rows = c.execute("SELECT ts,name FROM events WHERE ts>=? ORDER BY ts", (since,)).fetchall()
+    c.close()
+    return jsonify([{"ts": r[0], "name": r[1]} for r in rows])
 
 
 @app.route("/api/power/<action>", methods=["POST"])

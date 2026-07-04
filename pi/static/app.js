@@ -4,16 +4,19 @@
 const TEMP_FIELDS = [
   ["heat_lower", "Heat on"], ["heat_upper", "Heat off"], ["min_room", "Min room"],
   ["temp_upper", "Cool on"], ["temp_lower", "Cool off"],
-  ["rh_lower", "RH low"], ["rh_upper", "RH high"],
+  ["rh_upper", "RH high"], ["rh_lower", "RH low"],
 ];
-const ENABLES = [
-  ["heat_enabled", "Heizung"], ["temp_enabled", "Kühlung"],
-  ["rh_enabled", "RH-Regelung"], ["idle_enabled", "Idle-Lüftung"],
-];
-const PWM_FIELDS = [
-  ["temp_pwm_f1", "Cool PWM1"], ["temp_pwm_f2", "Cool PWM2"],
-  ["rh_pwm_f1", "RH PWM1"], ["rh_pwm_f2", "RH PWM2"],
-  ["idle_pwm_f1", "Idle PWM1"], ["idle_pwm_f2", "Idle PWM2"],
+
+// "Settings" grouped by function; third element = boolean toggle
+const MANUAL_GROUPS = [
+  ["Heizung", [["heat_enabled", "Ein", true], ["heat_lower", "Heat on"],
+    ["heat_upper", "Heat off"], ["min_room", "Min room"]]],
+  ["Kühlung", [["temp_enabled", "Ein", true], ["temp_upper", "Cool on"],
+    ["temp_lower", "Cool off"], ["temp_pwm_f1", "PWM 1"], ["temp_pwm_f2", "PWM 2"]]],
+  ["RH-Regelung", [["rh_enabled", "Ein", true], ["rh_upper", "RH high"],
+    ["rh_lower", "RH low"], ["rh_pwm_f1", "PWM 1"], ["rh_pwm_f2", "PWM 2"]]],
+  ["Idle-Lüftung", [["idle_enabled", "Ein", true], ["idle_pwm_f1", "PWM 1"],
+    ["idle_pwm_f2", "PWM 2"]]],
 ];
 
 const $ = id => document.getElementById(id);
@@ -69,7 +72,7 @@ async function pollStatus() {
 
 // ─────────────────────────────────────── chart
 let rangeMin = 60;
-let lastRows = [], plot = null;  // last drawn data + scale info for hover
+let lastRows = [], lastEvents = [], plot = null;  // last data + scale info for hover
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -83,8 +86,12 @@ function fitCanvas() {
 async function pollLog() {
   try {
     const since = Date.now() / 1000 - rangeMin * 60;
-    const rows = await (await fetch("/api/log?since=" + since)).json();
+    const [rows, events] = await Promise.all([
+      fetch("/api/log?since=" + since).then(r => r.json()),
+      fetch("/api/events?since=" + since).then(r => r.json()),
+    ]);
     lastRows = rows;
+    lastEvents = events;
     drawChart(rows);
   } catch (e) { /* keep last frame */ }
 }
@@ -161,6 +168,18 @@ function drawChart(rows) {
   series("core", syT, css("--core"));
   series("chamber", syT, css("--cham"));
   series("rh", syR, css("--rh"), [5, 4]);
+
+  // profile step markers (vertical line + name)
+  ctx.font = "9px system-ui"; ctx.textBaseline = "top";
+  lastEvents.forEach(ev => {
+    if (ev.ts < t0 || ev.ts > t1) return;
+    const ex = sx(ev.ts);
+    ctx.strokeStyle = "rgba(176,123,255,.6)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(ex, y1); ctx.lineTo(ex, y0); ctx.stroke(); ctx.setLineDash([]);
+    const nearRight = ex > (x0 + x1) / 2;
+    ctx.fillStyle = "#c9b3ff"; ctx.textAlign = nearRight ? "right" : "left";
+    ctx.fillText(ev.name || "", ex + (nearRight ? -3 : 3), y1 + 2);
+  });
   // time labels (below the activity bands)
   ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
   const labelY = bandTop + bandDefs.length * (bandH + bandGap) + 2;
@@ -315,15 +334,16 @@ function download(name, text, mime) {
 // ─────────────────────────────────────── manual setpoints
 function manualForm(m) {
   const el = $("manualForm"); el.innerHTML = "";
-  ENABLES.forEach(([k, lbl]) => {
-    const l = document.createElement("label"); l.className = "chk";
-    l.innerHTML = `<input type="checkbox" data-k="${k}" ${m[k] ? "checked" : ""}> ${lbl}`;
-    el.appendChild(l);
-  });
-  TEMP_FIELDS.concat(PWM_FIELDS).forEach(([k, lbl]) => {
-    const l = document.createElement("label");
-    l.innerHTML = `${lbl}<input type="number" step="0.1" data-k="${k}" value="${m[k] ?? ""}">`;
-    el.appendChild(l);
+  MANUAL_GROUPS.forEach(([title, fields]) => {
+    const g = document.createElement("div"); g.className = "mgroup";
+    let html = `<h3>${title}</h3>`;
+    fields.forEach(([k, lbl, isBool]) => {
+      html += isBool
+        ? `<label class="chk"><input type="checkbox" data-k="${k}" ${m[k] ? "checked" : ""}> ${lbl}</label>`
+        : `<label>${lbl}<input type="number" step="0.1" data-k="${k}" value="${m[k] ?? ""}"></label>`;
+    });
+    g.innerHTML = html;
+    el.appendChild(g);
   });
 }
 async function loadManual() { manualForm(await (await fetch("/api/manual")).json()); }
@@ -343,13 +363,25 @@ async function saveManual() {
 $("addPoint").onclick = () => profBody.appendChild(pointRow());
 $("saveProf").onclick = saveProfile;
 $("startProf").onclick = async () => {
+  if (!confirm("Profil jetzt starten? Es wird ab sofort abgefahren und eine .ics-Datei heruntergeladen.")) return;
   await saveProfile();
   const d = await (await fetch("/api/profile/start", { method: "POST" })).json();
   pollStatus();
   const startEpoch = d.started_at || (Date.now() / 1000);
   if (d.points && d.points.length) download("koji-profil.ics", buildICS(d.points, startEpoch), "text/calendar");
 };
-$("stopProf").onclick = async () => { await fetch("/api/profile/stop", { method: "POST" }); pollStatus(); };
+$("stopProf").onclick = async () => {
+  if (!confirm("Profil wirklich stoppen?")) return;
+  await fetch("/api/profile/stop", { method: "POST" });
+  pollStatus();
+};
+$("dlIcs").onclick = async () => {
+  const st = await (await fetch("/api/status")).json();
+  const startEpoch = (st.profile && st.profile.started_at) || (Date.now() / 1000);
+  const points = collectProfile();
+  if (points.length) download("koji-profil.ics", buildICS(points, startEpoch), "text/calendar");
+  else alert("Keine Setpoints vorhanden.");
+};
 $("saveManual").onclick = saveManual;
 
 function powerScreen(title, note) {

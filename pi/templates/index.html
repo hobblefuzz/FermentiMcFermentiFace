@@ -46,7 +46,10 @@
   <!-- ── Profile editor ────────────────────────────────── -->
   <section class="card">
     <div class="card-head">
-      <h2>Kurve / Profil</h2>
+      <div class="htitle">
+        <h2>Profil</h2>
+        <span class="help" data-tip="Leere Felder werden vom vorherigen Setpoint übernommen (Forward-Merge). Beim Start wird eine Kalender-Datei (.ics) mit den Setpoints erstellt.">?</span>
+      </div>
       <div id="profState" class="pill">–</div>
     </div>
     <table id="profTable">
@@ -55,17 +58,15 @@
           <th>Zeit (h)</th><th>Name</th>
           <th>Heat on</th><th>Heat off</th><th>Min room</th>
           <th>Cool on</th><th>Cool off</th>
-          <th>RH low</th><th>RH high</th><th></th>
+          <th>RH high</th><th>RH low</th><th></th>
         </tr>
       </thead>
       <tbody id="profBody"></tbody>
     </table>
-    <p class="hint">Leere Felder werden vom vorherigen Schritt übernommen (Forward-Merge).
-       „Cool on/off" = Lüfter EIN/AUS-Schwelle. Beim Start wird eine
-       Kalender-Datei (.ics) mit den Rühr-Terminen heruntergeladen.</p>
     <div class="btns">
-      <button id="addPoint">+ Schritt</button>
+      <button id="addPoint">+ Setpoint</button>
       <button id="saveProf">Speichern</button>
+      <button id="dlIcs">⬇ .ics</button>
       <button id="startProf" class="go">▶ Start</button>
       <button id="stopProf" class="stop">■ Stop</button>
     </div>
@@ -74,10 +75,12 @@
   <!-- ── Manual base setpoints ─────────────────────────── -->
   <section class="card">
     <div class="card-head">
-      <h2>Basis-Sollwerte (manuell)</h2>
-      <span class="hint">gelten, wenn kein Profil läuft — und als Basis fürs Profil</span>
+      <div class="htitle">
+        <h2>Settings</h2>
+        <span class="help" data-tip="Gelten, wenn kein Profil läuft — und als Basis fürs Profil.">?</span>
+      </div>
     </div>
-    <div id="manualForm" class="grid"></div>
+    <div id="manualForm" class="mgroups"></div>
     <div class="btns">
       <button id="saveManual">Speichern</button>
     </div>
@@ -85,16 +88,19 @@
 
   <!-- ── System ────────────────────────────────────────── -->
   <section class="card">
-    <div class="card-head"><h2>System</h2></div>
+    <div class="card-head">
+      <div class="htitle">
+        <h2>System</h2>
+        <span class="help" data-tip="Vor dem Stromtrennen herunterfahren und warten, bis die grüne LED am Pi aus ist — schützt die SD-Karte vor Beschädigung.">?</span>
+      </div>
+    </div>
     <div class="btns">
       <button id="btnReboot">↻ Neustart</button>
       <button id="btnShutdown" class="stop">⏻ Herunterfahren</button>
     </div>
-    <p class="hint">Vor dem Stromtrennen <b>herunterfahren</b> und warten, bis die grüne LED am Pi aus ist —
-       schützt die SD-Karte vor Beschädigung.</p>
   </section>
 
-  <footer>ESP32 behält die Kontrolle &amp; alle Sicherheitsfunktionen — dieses Dashboard steuert nur die Sollwerte.</footer>
+  <footer>ESP32 behält die Kontrolle &amp; alle Sicherheitsfunktionen — Dashboard steuert nur Sollwerte.</footer>
 
   <script src="/static/app.js"></script>
 </body>
