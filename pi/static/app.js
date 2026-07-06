@@ -22,6 +22,7 @@ const MANUAL_GROUPS = [
 const $ = id => document.getElementById(id);
 const live = $("live"), profState = $("profState"), profBody = $("profBody"),
       ranges = $("ranges"), canvas = $("chart"), tip = $("tip");
+const mCanvas = $("mChart"), mLive = $("mLive");
 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = v => (v === null || v === undefined) ? "--" : v;
@@ -77,6 +78,8 @@ async function pollStatus() {
 let rangeMin = 60;
 let lastRows = [], lastEvents = [], plot = null;  // last data + scale info for hover
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
+let activeView = "koji";
+let mRangeMin = 1440, mCW = 900, mCH = 300;        // Moromi chart
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
   CW = canvas.clientWidth || 900;
@@ -87,6 +90,7 @@ function fitCanvas() {
 }
 
 async function pollLog() {
+  if (activeView !== "koji") return;
   try {
     const since = Date.now() / 1000 - rangeMin * 60;
     const [rows, events] = await Promise.all([
@@ -248,6 +252,112 @@ function onHover(e) {
 
 canvas.addEventListener("mousemove", onHover);
 canvas.addEventListener("mouseleave", hideTip);
+
+// ─────────────────────────────────────── Moromi tracker view
+function fitMoromi() {
+  const dpr = window.devicePixelRatio || 1;
+  mCW = mCanvas.clientWidth || 900;
+  mCanvas.width = Math.round(mCW * dpr);
+  mCanvas.height = Math.round(mCH * dpr);
+  mCanvas.style.height = mCH + "px";
+  mCanvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function mLabel(d) {
+  if (mRangeMin >= 2880)   // >= 2 days → date
+    return ("0" + d.getDate()).slice(-2) + "." + ("0" + (d.getMonth() + 1)).slice(-2);
+  return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+}
+
+function drawMoromi(rows) {
+  const ctx = mCanvas.getContext("2d"), W = mCW, H = mCH;
+  ctx.clearRect(0, 0, W, H);
+  const pad = { l: 44, r: 44, t: 12, b: 26 };
+  const x0 = pad.l, x1 = W - pad.r, y0 = H - pad.b, y1 = pad.t;
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
+  ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
+  if (!rows.length) {
+    ctx.fillStyle = css("--dim"); ctx.textAlign = "left";
+    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); return;
+  }
+  const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
+  const temps = rows.filter(r => r.temp != null).map(r => r.temp);
+  let tmin, tmax;
+  if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 30; }
+  tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 3) tmax = tmin + 3;
+  const hasBatt = rows.some(r => r.batt != null);
+  const bmin = 3.0, bmax = 4.3;
+  const sx = ts => x0 + (ts - t0) / tSpan * (x1 - x0);
+  const syT = v => y0 - (v - tmin) / (tmax - tmin) * (y0 - y1);
+  const syB = v => y0 - (v - bmin) / (bmax - bmin) * (y0 - y1);
+
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const v = tmin + (tmax - tmin) * i / steps, y = syT(v);
+    ctx.strokeStyle = "#1c232b"; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y);
+    if (hasBatt) {
+      const bv = bmin + (bmax - bmin) * i / steps;
+      ctx.textAlign = "left"; ctx.fillStyle = css("--batt"); ctx.fillText(bv.toFixed(1), x1 + 6, syB(bv));
+    }
+  }
+  const smooth = pts => {
+    if (pts.length < 3) { pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); return; }
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++)
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+    const n = pts.length - 1; ctx.lineTo(pts[n].x, pts[n].y);
+  };
+  const series = (key, sy, color, dash) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.setLineDash(dash || []);
+    let seg = [];
+    const flush = () => { if (seg.length) { ctx.beginPath(); smooth(seg); ctx.stroke(); seg = []; } };
+    rows.forEach(r => { const v = r[key]; if (v == null) { flush(); return; } seg.push({ x: sx(r.ts), y: sy(v) }); });
+    flush(); ctx.setLineDash([]);
+  };
+  series("temp", syT, css("--core"));
+  if (hasBatt) series("batt", syB, css("--batt"), [5, 4]);
+
+  ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let i = 0; i <= steps; i++) {
+    const ts = t0 + tSpan * i / steps;
+    ctx.fillText(mLabel(new Date(ts * 1000)), sx(ts), y0 + 6);
+  }
+}
+
+async function pollMoromi() {
+  if (activeView !== "moromi") return;
+  try {
+    const since = Date.now() / 1000 - mRangeMin * 60;
+    const [rows, latest] = await Promise.all([
+      fetch("/api/track/log?device=moromi&since=" + since).then(r => r.json()),
+      fetch("/api/track/latest").then(r => r.json()),
+    ]);
+    drawMoromi(rows);
+    const m = latest.moromi;
+    let h = "";
+    if (m && m.temp != null) {
+      h += tile("Temperatur", m.temp.toFixed(1) + " °C");
+      if (m.batt != null) h += tile("Batterie", m.batt.toFixed(2) + " V");
+      h += tile("Letzte Messung", fmtDur(Math.max(0, Date.now() / 1000 - m.ts)) + " her");
+    } else {
+      h += tile("Status", "keine Daten");
+    }
+    mLive.className = "stats"; mLive.innerHTML = h;
+  } catch (e) {
+    mLive.className = "stats off";
+    mLive.innerHTML = '<div class="stat"><div class="val">offline</div></div>';
+  }
+}
+
+function showView(name) {
+  activeView = name;
+  document.querySelectorAll(".view").forEach(v => { v.hidden = (v.id !== "view-" + name); });
+  document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  if (name === "koji") { fitCanvas(); pollLog(); pollStatus(); }
+  else { fitMoromi(); pollMoromi(); }
+}
 
 // ─────────────────────────────────────── profile editor
 function pointRow(pt) {
@@ -415,10 +525,21 @@ ranges.querySelectorAll("button").forEach(b => b.onclick = () => {
   ranges.querySelectorAll("button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); rangeMin = +b.dataset.min; pollLog();
 });
-window.addEventListener("resize", () => { fitCanvas(); pollLog(); });
+$("mRanges").querySelectorAll("button").forEach(b => b.onclick = () => {
+  $("mRanges").querySelectorAll("button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); mRangeMin = +b.dataset.min; pollMoromi();
+});
+$("mCsv").onclick = () => { location.href = "/api/track/export.csv?device=moromi"; };
+document.querySelectorAll(".navbtn").forEach(b => b.onclick = () => showView(b.dataset.view));
+
+window.addEventListener("resize", () => {
+  if (activeView === "koji") { fitCanvas(); pollLog(); }
+  else { fitMoromi(); pollMoromi(); }
+});
 
 fitCanvas();
 loadProfile(); loadManual();
 pollStatus(); pollLog();
 setInterval(pollStatus, 2000);
 setInterval(pollLog, 8000);
+setInterval(pollMoromi, 15000);

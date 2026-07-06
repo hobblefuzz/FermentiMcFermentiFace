@@ -57,6 +57,7 @@ except Exception:
     pass
 
 last_telemetry = {}
+last_tracker = {}   # device_id -> {"ts", "temp", "batt"}
 
 
 def _save_manual():
@@ -70,6 +71,7 @@ def _db():
         ts REAL, core REAL, chamber REAL, rh REAL,
         heater INTEGER, fan1 INTEGER, fan2 INTEGER, fan TEXT)""")
     c.execute("CREATE TABLE IF NOT EXISTS events (ts REAL, name TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS tracker (ts REAL, device TEXT, temp REAL, batt REAL)")
     return c
 
 
@@ -253,6 +255,63 @@ def power(action):
         return jsonify({"ok": False, "error": "unknown action"}), 400
     threading.Timer(1.0, lambda: subprocess.Popen(cmd)).start()
     return jsonify({"ok": True, "action": action})
+
+
+# ------------------------------------------------------ sensor-only trackers
+@app.route("/api/track", methods=["POST"])
+def track():
+    t = request.get_json(force=True, silent=True) or {}
+    dev = t.get("id", "tracker")
+    temp = t.get("temp")
+    batt = t.get("batt")
+    last_tracker[dev] = {"ts": time.time(), "temp": temp, "batt": batt}
+    try:
+        c = _db()
+        c.execute("INSERT INTO tracker VALUES (?,?,?,?)", (time.time(), dev, temp, batt))
+        c.commit(); c.close()
+    except Exception as e:
+        print("[db] track error:", e)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/track/latest")
+def track_latest():
+    return jsonify(last_tracker)
+
+
+@app.route("/api/track/log")
+def track_log():
+    dev = request.args.get("device", "moromi")
+    since = float(request.args.get("since", time.time() - 24 * 3600))
+    c = _db()
+    rows = c.execute("SELECT ts,temp,batt FROM tracker WHERE device=? AND ts>=? ORDER BY ts",
+                     (dev, since)).fetchall()
+    c.close()
+    return jsonify([{"ts": r[0], "temp": r[1], "batt": r[2]} for r in rows])
+
+
+@app.route("/api/track/export.csv")
+def track_export_csv():
+    dev = request.args.get("device", "moromi")
+    c = _db()
+    rows = c.execute("SELECT ts,temp,batt FROM tracker WHERE device=? ORDER BY ts",
+                     (dev,)).fetchall()
+    c.close()
+
+    def de(v):
+        if v is None:
+            return ""
+        return str(v).replace(".", ",") if isinstance(v, float) else str(v)
+
+    buf = io.StringIO()
+    buf.write("sep=;\r\n")
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["timestamp", "datetime", "temp_c", "batt_v"])
+    for r in rows:
+        dt = datetime.datetime.fromtimestamp(r[0]).isoformat(sep=" ", timespec="seconds")
+        w.writerow([de(r[0]), dt, de(r[1]), de(r[2])])
+    return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=%s_log.csv" % dev})
 
 
 @app.route("/")
