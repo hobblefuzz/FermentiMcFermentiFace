@@ -353,7 +353,11 @@ async function pollMoromi() {
     if (m && m.temp != null) {
       h += tile("Temperatur", m.temp.toFixed(1) + " °C");
       if (m.batt != null) h += tile("Batterie", m.batt.toFixed(2) + " V");
-      h += tile("Letzte Messung", fmtDur(Math.max(0, Date.now() / 1000 - m.ts)) + " her");
+      const d = new Date(m.ts * 1000);
+      const hhmm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+      const sameDay = d.toDateString() === new Date().toDateString();
+      h += tile("Letzte Messung", sameDay ? hhmm
+        : ("0" + d.getDate()).slice(-2) + "." + ("0" + (d.getMonth() + 1)).slice(-2) + ". " + hhmm);
     } else {
       h += tile("Status", "keine Daten");
     }
