@@ -319,6 +319,19 @@ function drawMoromi(rows) {
   series("temp", syT, css("--core"));
   if (hasBatt) series("batt", syB, css("--batt"), [5, 4]);
 
+  // dots per sample (so even a single/sparse reading is visible)
+  if (rows.length <= 300) {
+    const dots = (key, sy, color) => {
+      ctx.fillStyle = color;
+      rows.forEach(r => {
+        const v = r[key]; if (v == null) return;
+        ctx.beginPath(); ctx.arc(sx(r.ts), sy(v), 2.4, 0, 6.29); ctx.fill();
+      });
+    };
+    dots("temp", syT, css("--core"));
+    if (hasBatt) dots("batt", syB, css("--batt"));
+  }
+
   ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
   for (let i = 0; i <= steps; i++) {
     const ts = t0 + tSpan * i / steps;
