@@ -35,7 +35,7 @@ WIFI_TIMEOUT  = 12           # s to wait for a connection
 
 # Battery sense (optional). Set BATT_ADC_PIN to an ADC1 pin (32-39) and wire a
 # divider from the LiPo; leave None to disable. BATT_DIVIDER = Vbatt/Vpin.
-BATT_ADC_PIN  = None
+BATT_ADC_PIN  = 32
 BATT_DIVIDER  = 2.0
 
 
@@ -127,6 +127,13 @@ def run():
     else:
         print("[track] no WiFi")
 
+
+# On a manual reset / power-on (not a timed deep-sleep wake), pause first so you
+# can grab the REPL with Ctrl-C before it sleeps again — painless maintenance.
+# Normal timed wakes skip this and stay efficient.
+if machine.reset_cause() != machine.DEEPSLEEP_RESET:
+    print("[track] manual boot — 5 s maintenance window, Ctrl-C to stop ...")
+    time.sleep(5)
 
 run()
 print("[track] deep sleep for", INTERVAL_S, "s")
