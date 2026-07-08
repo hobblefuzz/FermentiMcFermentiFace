@@ -66,8 +66,7 @@ async function pollStatus() {
     profState.textContent = p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt";
     profState.className = "pill" + (p.running ? " run" : "");
     const lg = $("logToggle");
-    lg.textContent = "Logging: " + (d.logging ? "AN" : "AUS");
-    lg.className = d.logging ? "go" : "";
+    if (lg) { lg.textContent = "Logging: " + (d.logging ? "AN" : "AUS"); lg.className = d.logging ? "go" : ""; }
   } catch (e) {
     live.className = "stats off";
     live.innerHTML = '<div class="stat"><div class="val">Server offline</div></div>';
@@ -525,7 +524,7 @@ $("dlIcs").onclick = async () => {
   else alert("Keine Setpoints vorhanden.");
 };
 $("saveManual").onclick = saveManual;
-$("resetManual").onclick = async () => {
+if ($("resetManual")) $("resetManual").onclick = async () => {
   if (!confirm("Settings auf Werkseinstellungen zurücksetzen?")) return;
   manualForm(await (await fetch("/api/manual/reset", { method: "POST" })).json());
   flash($("resetManual"));
@@ -533,20 +532,21 @@ $("resetManual").onclick = async () => {
 
 // profile library (save/load/delete named profiles)
 async function loadProfiles() {
+  const sel = $("profSelect"); if (!sel) return;
   const names = await (await fetch("/api/profiles")).json();
-  const sel = $("profSelect"), cur = sel.value;
+  const cur = sel.value;
   sel.innerHTML = '<option value="">— gespeichertes Profil —</option>' +
     names.map(n => `<option>${n}</option>`).join("");
   if (names.includes(cur)) sel.value = cur;
 }
-$("loadProf").onclick = async () => {
+if ($("loadProf")) $("loadProf").onclick = async () => {
   const name = $("profSelect").value; if (!name) return;
   const d = await (await fetch("/api/profiles/" + encodeURIComponent(name))).json();
   profBody.innerHTML = "";
   (d.points || []).forEach(p => profBody.appendChild(pointRow(p)));
   if (!profBody.children.length) profBody.appendChild(pointRow());
 };
-$("saveAsProf").onclick = async () => {
+if ($("saveAsProf")) $("saveAsProf").onclick = async () => {
   const name = (prompt("Profil speichern als:") || "").trim(); if (!name) return;
   await fetch("/api/profiles/" + encodeURIComponent(name), {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -554,7 +554,7 @@ $("saveAsProf").onclick = async () => {
   });
   await loadProfiles(); $("profSelect").value = name;
 };
-$("delProf").onclick = async () => {
+if ($("delProf")) $("delProf").onclick = async () => {
   const name = $("profSelect").value;
   if (!name || !confirm("Profil löschen: " + name + " ?")) return;
   await fetch("/api/profiles/" + encodeURIComponent(name), { method: "DELETE" });
@@ -606,18 +606,17 @@ try {
 function saveScale() {
   localStorage.setItem(SCALE_KEY, JSON.stringify({ mode: scaleMode, tmin: scaleTmin, tmax: scaleTmax }));
 }
-function syncScaleUI() {
-  $("scaleManual").checked = scaleMode === "manual";
-  $("scaleInputs").hidden = scaleMode !== "manual";
-  $("scaleTmin").value = scaleTmin; $("scaleTmax").value = scaleTmax;
+if ($("scaleManual")) {
+  const sm = $("scaleManual"), si = $("scaleInputs"), s0 = $("scaleTmin"), s1 = $("scaleTmax");
+  const syncScaleUI = () => {
+    sm.checked = scaleMode === "manual"; si.hidden = scaleMode !== "manual";
+    s0.value = scaleTmin; s1.value = scaleTmax;
+  };
+  sm.onchange = () => { scaleMode = sm.checked ? "manual" : "auto"; syncScaleUI(); saveScale(); drawChart(lastRows); };
+  s0.onchange = () => { scaleTmin = parseFloat(s0.value); if (isNaN(scaleTmin)) scaleTmin = 0; saveScale(); drawChart(lastRows); };
+  s1.onchange = () => { scaleTmax = parseFloat(s1.value); if (isNaN(scaleTmax)) scaleTmax = 40; saveScale(); drawChart(lastRows); };
+  syncScaleUI();
 }
-$("scaleManual").onchange = () => {
-  scaleMode = $("scaleManual").checked ? "manual" : "auto";
-  syncScaleUI(); saveScale(); drawChart(lastRows);
-};
-$("scaleTmin").onchange = () => { scaleTmin = parseFloat($("scaleTmin").value); if (isNaN(scaleTmin)) scaleTmin = 0; saveScale(); drawChart(lastRows); };
-$("scaleTmax").onchange = () => { scaleTmax = parseFloat($("scaleTmax").value); if (isNaN(scaleTmax)) scaleTmax = 40; saveScale(); drawChart(lastRows); };
-syncScaleUI();
 
 window.addEventListener("resize", () => {
   if (activeView === "koji") { fitCanvas(); pollLog(); }
