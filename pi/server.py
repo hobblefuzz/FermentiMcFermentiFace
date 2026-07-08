@@ -37,6 +37,8 @@ MANUAL_FILE   = os.path.join(DATA, "manual.json")
 PROFILES_FILE = os.path.join(DATA, "profiles.json")   # named profile library
 
 app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = True   # pick up index.html edits without a restart
+app.jinja_env.auto_reload = True
 
 profile = Profile()
 profile.load(PROFILE_FILE)
