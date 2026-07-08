@@ -76,7 +76,9 @@ async function pollStatus() {
 
 // ─────────────────────────────────────── chart
 let rangeMin = 60;
+let scaleMode = "auto", scaleTmin = 20, scaleTmax = 40;   // temperature y-axis
 let lastRows = [], lastEvents = [], plot = null;  // last data + scale info for hover
+const PLAUSIBLE = v => v != null && v > -20 && v < 80;   // reject sensor glitches
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
 let activeView = "koji";
 let mRangeMin = 1440, mCW = 900, mCH = 300;        // Moromi chart
@@ -115,11 +117,15 @@ function drawChart(rows) {
     ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); plot = null; return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
-  let temps = [];
-  rows.forEach(r => { if (r.core != null) temps.push(r.core); if (r.chamber != null) temps.push(r.chamber); });
   let tmin, tmax;
-  if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 40; }
-  tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 4) tmax = tmin + 4;
+  if (scaleMode === "manual") {
+    tmin = scaleTmin; tmax = scaleTmax; if (tmax <= tmin) tmax = tmin + 1;
+  } else {
+    const temps = [];
+    rows.forEach(r => { if (PLAUSIBLE(r.core)) temps.push(r.core); if (PLAUSIBLE(r.chamber)) temps.push(r.chamber); });
+    if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 40; }
+    tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 4) tmax = tmin + 4;
+  }
 
   const sx = ts => x0 + (ts - t0) / tSpan * (x1 - x0);
   const syT = v => y0 - (v - tmin) / (tmax - tmin) * (y0 - y1);
@@ -172,9 +178,12 @@ function drawChart(rows) {
     rows.forEach(r => { const v = r[key]; if (v == null) { flush(); return; } seg.push({ x: sx(r.ts), y: sy(v) }); });
     flush(); ctx.setLineDash([]);
   };
+  ctx.save();                                    // clip so glitches don't spike out
+  ctx.beginPath(); ctx.rect(x0, y1, x1 - x0, y0 - y1); ctx.clip();
   series("core", syT, css("--core"));
   series("chamber", syT, css("--cham"));
   series("rh", syR, css("--rh"), [5, 4]);
+  ctx.restore();
 
   // profile step markers (vertical line + name)
   ctx.font = "9px system-ui"; ctx.textBaseline = "top";
@@ -281,7 +290,7 @@ function drawMoromi(rows) {
     ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
-  const temps = rows.filter(r => r.temp != null).map(r => r.temp);
+  const temps = rows.filter(r => PLAUSIBLE(r.temp)).map(r => r.temp);
   let tmin, tmax;
   if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 30; }
   tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 3) tmax = tmin + 3;
@@ -316,6 +325,8 @@ function drawMoromi(rows) {
     rows.forEach(r => { const v = r[key]; if (v == null) { flush(); return; } seg.push({ x: sx(r.ts), y: sy(v) }); });
     flush(); ctx.setLineDash([]);
   };
+  ctx.save();                                    // clip so glitches don't spike out
+  ctx.beginPath(); ctx.rect(x0, y1, x1 - x0, y0 - y1); ctx.clip();
   series("temp", syT, css("--core"));
   if (hasBatt) series("batt", syB, css("--batt"), [5, 4]);
 
@@ -331,6 +342,7 @@ function drawMoromi(rows) {
     dots("temp", syT, css("--core"));
     if (hasBatt) dots("batt", syB, css("--batt"));
   }
+  ctx.restore();
 
   ctx.fillStyle = css("--dim"); ctx.textAlign = "center"; ctx.textBaseline = "top";
   for (let i = 0; i <= steps; i++) {
@@ -584,6 +596,28 @@ $("mRanges").querySelectorAll("button").forEach(b => b.onclick = () => {
 });
 $("mCsv").onclick = () => { location.href = "/api/track/export.csv?device=moromi"; };
 document.querySelectorAll(".navbtn").forEach(b => b.onclick = () => showView(b.dataset.view));
+
+// temperature-scale control (auto / manual), persisted in the browser
+const SCALE_KEY = "koji_tscale";
+try {
+  const s = JSON.parse(localStorage.getItem(SCALE_KEY) || "null");
+  if (s) { scaleMode = s.mode || "auto"; scaleTmin = s.tmin ?? 20; scaleTmax = s.tmax ?? 40; }
+} catch (e) { /* ignore */ }
+function saveScale() {
+  localStorage.setItem(SCALE_KEY, JSON.stringify({ mode: scaleMode, tmin: scaleTmin, tmax: scaleTmax }));
+}
+function syncScaleUI() {
+  $("scaleManual").checked = scaleMode === "manual";
+  $("scaleInputs").hidden = scaleMode !== "manual";
+  $("scaleTmin").value = scaleTmin; $("scaleTmax").value = scaleTmax;
+}
+$("scaleManual").onchange = () => {
+  scaleMode = $("scaleManual").checked ? "manual" : "auto";
+  syncScaleUI(); saveScale(); drawChart(lastRows);
+};
+$("scaleTmin").onchange = () => { scaleTmin = parseFloat($("scaleTmin").value); if (isNaN(scaleTmin)) scaleTmin = 0; saveScale(); drawChart(lastRows); };
+$("scaleTmax").onchange = () => { scaleTmax = parseFloat($("scaleTmax").value); if (isNaN(scaleTmax)) scaleTmax = 40; saveScale(); drawChart(lastRows); };
+syncScaleUI();
 
 window.addEventListener("resize", () => {
   if (activeView === "koji") { fitCanvas(); pollLog(); }

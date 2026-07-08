@@ -45,6 +45,12 @@
           <span class="lg frh">Lüftung RH</span>
           <span class="lg fi">Lüftung Idle</span>
         </div>
+        <div class="scalectl">
+          <label><input type="checkbox" id="scaleManual"> Feste T-Skala</label>
+          <span id="scaleInputs" hidden>
+            <input type="number" id="scaleTmin" step="1"> – <input type="number" id="scaleTmax" step="1"> °C
+          </span>
+        </div>
         <div class="btns">
           <button id="logToggle">Logging …</button>
           <button id="csvExport">⬇ CSV</button>
