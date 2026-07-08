@@ -242,12 +242,9 @@ class EditScreen:
             elif key == "temp_lower_x10":
                 val = max(val, cfg.heat_upper_x10)
 
-            # Room floor must sit at or above the core heat-on point.
-            #   min_room ≥ heat_lower
-            if key == "min_room_x10":
-                val = max(val, cfg.heat_lower_x10)
-            elif key == "heat_lower_x10":
-                val = min(val, cfg.min_room_x10)
+            # (min_room is intentionally unconstrained — it's a general room
+            # floor and may sit below the core band.  The runtime safety gate
+            # "no heating once core ≥ heat_upper" is the real protection.)
 
             setattr(cfg, key, val)
         return T.BACK

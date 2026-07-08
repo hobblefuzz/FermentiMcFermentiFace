@@ -31,6 +31,7 @@ _REMOTE_FIELDS = {
     "temp_pwm_f2":  ("temp_pwm_f2",    False),
     "rh_pwm_f1":    ("rh_pwm_f1",      False),
     "rh_pwm_f2":    ("rh_pwm_f2",      False),
+    "idle_max_idle":("idle_max_idle",  False),
     "idle_pwm_f1":  ("idle_pwm_f1",    False),
     "idle_pwm_f2":  ("idle_pwm_f2",    False),
 }

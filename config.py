@@ -28,10 +28,11 @@ DEFAULTS = {
 
     # Heating (relay) — references the DS18B20 core temperature.
     # Inverted hysteresis: ON below heat_lower, OFF above heat_upper.
-    # Constraints enforced in GUI: heat_upper <= temp_lower (deadband),
-    #                              min_room >= heat_lower.
+    # Constraint enforced in GUI: heat_upper <= temp_lower (deadband).
+    # min_room is a general room floor (may sit below the core band); the
+    # runtime gate "no heating once core >= heat_upper" is the safety.
     "heat_enabled":     0,    # bool        default OFF until sensor wired
-    "heat_lower_x10": 280,    # int         0-800 (= 28.0 °C) heater ON below (core)
+    "heat_lower_x10": 290,    # int         0-800 (= 29.0 °C) heater ON below (core)
     "heat_upper_x10": 300,    # int         0-800 (= 30.0 °C) heater OFF above (core)
     "min_room_x10":   280,    # int         0-800 (= 28.0 °C) room floor: heat if
                               #             chamber (BME280) drops below this
@@ -39,23 +40,23 @@ DEFAULTS = {
 
     # RH Control
     "rh_enabled":       1,    # bool
-    "rh_lower":        65,    # int         0-100 %RH
-    "rh_upper":        85,    # int         0-100 %RH
+    "rh_lower":        85,    # int         0-100 %RH
+    "rh_upper":        90,    # int         0-100 %RH
     "rh_pwm_f1":       50,    # int         1-100 %
-    "rh_pwm_f2":       50,    # int         1-100 %
+    "rh_pwm_f2":       35,    # int         1-100 %
 
-    # Temperature Control  (stored as °C × 10 for 0.5°C resolution)
+    # Temperature Control (fan cooling)  — stored as °C × 10
     "temp_enabled":     1,    # bool
-    "temp_lower_x10": 360,    # int         0-800 (= 0-80 °C)
-    "temp_upper_x10": 380,    # int         0-800 (= 0-80 °C)
-    "temp_pwm_f1":     50,    # int         1-100 %
-    "temp_pwm_f2":     50,    # int         1-100 %
+    "temp_lower_x10": 310,    # int         0-800 (= 31.0 °C) fans OFF below (core)
+    "temp_upper_x10": 320,    # int         0-800 (= 32.0 °C) fans ON above (core)
+    "temp_pwm_f1":    100,    # int         1-100 %
+    "temp_pwm_f2":    100,    # int         1-100 %
 
     # IDLE ventilation
     "idle_enabled":     1,    # bool
     "idle_max_idle":   30,    # int         2-60 min
     "idle_duration":   30,    # int         5-120 s
-    "idle_pwm_f1":     50,    # int         1-100 %
+    "idle_pwm_f1":     35,    # int         1-100 %
     "idle_pwm_f2":     50,    # int         1-100 %
 }
 

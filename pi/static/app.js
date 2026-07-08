@@ -15,8 +15,8 @@ const MANUAL_GROUPS = [
     ["temp_lower", "Cool off"], ["temp_pwm_f1", "PWM 1"], ["temp_pwm_f2", "PWM 2"]]],
   ["RH-Regelung", [["rh_enabled", "Ein", true], ["rh_upper", "RH high"],
     ["rh_lower", "RH low"], ["rh_pwm_f1", "PWM 1"], ["rh_pwm_f2", "PWM 2"]]],
-  ["Idle-Lüftung", [["idle_enabled", "Ein", true], ["idle_pwm_f1", "PWM 1"],
-    ["idle_pwm_f2", "PWM 2"]]],
+  ["Idle-Lüftung", [["idle_enabled", "Ein", true], ["idle_max_idle", "Idle time (min)"],
+    ["idle_pwm_f1", "PWM 1"], ["idle_pwm_f2", "PWM 2"]]],
 ];
 
 const $ = id => document.getElementById(id);
@@ -513,6 +513,42 @@ $("dlIcs").onclick = async () => {
   else alert("Keine Setpoints vorhanden.");
 };
 $("saveManual").onclick = saveManual;
+$("resetManual").onclick = async () => {
+  if (!confirm("Settings auf Werkseinstellungen zurücksetzen?")) return;
+  manualForm(await (await fetch("/api/manual/reset", { method: "POST" })).json());
+  flash($("resetManual"));
+};
+
+// profile library (save/load/delete named profiles)
+async function loadProfiles() {
+  const names = await (await fetch("/api/profiles")).json();
+  const sel = $("profSelect"), cur = sel.value;
+  sel.innerHTML = '<option value="">— gespeichertes Profil —</option>' +
+    names.map(n => `<option>${n}</option>`).join("");
+  if (names.includes(cur)) sel.value = cur;
+}
+$("loadProf").onclick = async () => {
+  const name = $("profSelect").value; if (!name) return;
+  const d = await (await fetch("/api/profiles/" + encodeURIComponent(name))).json();
+  profBody.innerHTML = "";
+  (d.points || []).forEach(p => profBody.appendChild(pointRow(p)));
+  if (!profBody.children.length) profBody.appendChild(pointRow());
+};
+$("saveAsProf").onclick = async () => {
+  const name = (prompt("Profil speichern als:") || "").trim(); if (!name) return;
+  await fetch("/api/profiles/" + encodeURIComponent(name), {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ points: collectProfile() }),
+  });
+  await loadProfiles(); $("profSelect").value = name;
+};
+$("delProf").onclick = async () => {
+  const name = $("profSelect").value;
+  if (!name || !confirm("Profil löschen: " + name + " ?")) return;
+  await fetch("/api/profiles/" + encodeURIComponent(name), { method: "DELETE" });
+  await loadProfiles();
+};
+
 $("logToggle").onclick = async () => { await fetch("/api/logging/toggle", { method: "POST" }); pollStatus(); };
 $("csvExport").onclick = () => { location.href = "/api/export.csv"; };
 $("plotReset").onclick = async () => {
@@ -555,7 +591,7 @@ window.addEventListener("resize", () => {
 });
 
 fitCanvas();
-loadProfile(); loadManual();
+loadProfile(); loadManual(); loadProfiles();
 pollStatus(); pollLog();
 setInterval(pollStatus, 2000);
 setInterval(pollLog, 8000);

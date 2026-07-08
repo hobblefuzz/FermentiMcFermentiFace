@@ -31,30 +31,42 @@ from curve import Profile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 os.makedirs(DATA, exist_ok=True)
-DB           = os.path.join(DATA, "telemetry.db")
-PROFILE_FILE = os.path.join(DATA, "profile.json")
-MANUAL_FILE  = os.path.join(DATA, "manual.json")
+DB            = os.path.join(DATA, "telemetry.db")
+PROFILE_FILE  = os.path.join(DATA, "profile.json")
+MANUAL_FILE   = os.path.join(DATA, "manual.json")
+PROFILES_FILE = os.path.join(DATA, "profiles.json")   # named profile library
 
 app = Flask(__name__)
 
 profile = Profile()
 profile.load(PROFILE_FILE)
 
-# Setpoints used when no profile is running (also the base a profile builds on).
-manual = {
+# Factory defaults — kept in sync with the ESP32's config.py.
+FACTORY = {
     "heat_enabled": 1, "temp_enabled": 1, "rh_enabled": 1, "idle_enabled": 1,
-    "heat_lower": 28.0, "heat_upper": 30.0, "min_room": 28.0,
-    "temp_lower": 36.0, "temp_upper": 38.0,
-    "rh_lower": 65, "rh_upper": 85,
-    "temp_pwm_f1": 50, "temp_pwm_f2": 50,
-    "rh_pwm_f1": 50, "rh_pwm_f2": 50,
-    "idle_pwm_f1": 50, "idle_pwm_f2": 50,
+    "heat_lower": 29.0, "heat_upper": 30.0, "min_room": 28.0,
+    "temp_lower": 31.0, "temp_upper": 32.0,
+    "temp_pwm_f1": 100, "temp_pwm_f2": 100,
+    "rh_lower": 85, "rh_upper": 90,
+    "rh_pwm_f1": 50, "rh_pwm_f2": 35,
+    "idle_max_idle": 30,
+    "idle_pwm_f1": 35, "idle_pwm_f2": 50,
 }
+# Setpoints used when no profile is running (also the base a profile builds on).
+manual = dict(FACTORY)
 try:
     with open(MANUAL_FILE) as f:
         manual.update(json.load(f))
 except Exception:
     pass
+
+# Named profile library: {name: [points]}
+profiles = {}
+try:
+    with open(PROFILES_FILE) as f:
+        profiles = json.load(f)
+except Exception:
+    profiles = {}
 
 last_telemetry = {}
 last_tracker = {}   # device_id -> {"ts", "temp", "batt"}
@@ -63,6 +75,11 @@ last_tracker = {}   # device_id -> {"ts", "temp", "batt"}
 def _save_manual():
     with open(MANUAL_FILE, "w") as f:
         json.dump(manual, f, indent=2)
+
+
+def _save_profiles():
+    with open(PROFILES_FILE, "w") as f:
+        json.dump(profiles, f, indent=2)
 
 
 def _db():
@@ -163,6 +180,33 @@ def api_manual():
         manual.update(request.get_json(force=True) or {})
         _save_manual()
     return jsonify(manual)
+
+
+@app.route("/api/manual/reset", methods=["POST"])
+def api_manual_reset():
+    manual.clear()
+    manual.update(FACTORY)
+    _save_manual()
+    return jsonify(manual)
+
+
+# ------------------------------------------------------ named profile library
+@app.route("/api/profiles")
+def profiles_list():
+    return jsonify(sorted(profiles.keys()))
+
+
+@app.route("/api/profiles/<name>", methods=["GET", "POST", "DELETE"])
+def profiles_item(name):
+    if request.method == "POST":
+        profiles[name] = request.get_json(force=True).get("points", [])
+        _save_profiles()
+        return jsonify({"ok": True})
+    if request.method == "DELETE":
+        profiles.pop(name, None)
+        _save_profiles()
+        return jsonify({"ok": True})
+    return jsonify({"points": profiles.get(name, [])})
 
 
 @app.route("/api/profile", methods=["GET", "POST"])
