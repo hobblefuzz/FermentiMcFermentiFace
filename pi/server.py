@@ -46,7 +46,7 @@ profile.load(PROFILE_FILE)
 # Factory defaults — kept in sync with the ESP32's config.py.
 FACTORY = {
     "heat_enabled": 1, "temp_enabled": 1, "rh_enabled": 1, "idle_enabled": 1,
-    "heat_lower": 29.0, "heat_upper": 30.0, "min_room": 28.0,
+    "target": 30.0, "dt_lower": 0.5, "dt_floor": 2.0, "dt_ceil": 2.0,
     "temp_lower": 31.0, "temp_upper": 32.0,
     "temp_pwm_f1": 100, "temp_pwm_f2": 100,
     "rh_lower": 85, "rh_upper": 90,
@@ -58,7 +58,10 @@ FACTORY = {
 manual = dict(FACTORY)
 try:
     with open(MANUAL_FILE) as f:
-        manual.update(json.load(f))
+        saved = json.load(f)
+    # Only adopt keys we still know about, so orphaned pre-redesign keys
+    # (heat_lower/heat_upper/min_room) don't linger and get pushed.
+    manual.update({k: v for k, v in saved.items() if k in FACTORY})
 except Exception:
     pass
 

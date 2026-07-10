@@ -34,7 +34,7 @@ Content-Type: `application/json`
   "running": true,       // läuft gerade ein Profil?
   "setpoints": {         // aktuelle Sollwerte (nur angewandt, wenn ESP32 ext_ctrl=ON)
     "heat_enabled": 1, "temp_enabled": 1, "rh_enabled": 1, "idle_enabled": 1,
-    "heat_lower": 28.0, "heat_upper": 30.0, "min_room": 28.0,
+    "target": 30.0, "dt_lower": 0.5, "dt_floor": 2.0, "dt_ceil": 2.0,
     "temp_lower": 36.0, "temp_upper": 38.0,
     "rh_lower": 65, "rh_upper": 85,
     "temp_pwm_f1": 50, "temp_pwm_f2": 50,
@@ -46,6 +46,13 @@ Content-Type: `application/json`
 
 Temperaturen in **°C** (Floats); der ESP32 rechnet intern auf ×10-Ints um.
 Felder sind optional — nur mitgeschickte werden angewandt.
+
+**Heizung (Ziel-T-Schema):** `target` = Kern-Zieltemperatur; dazu drei Deltas
+(°C, Differenzen): `dt_lower` = Kern-Hysteresenband (heizen unter `target−dt_lower`,
+aus bei `target`), `dt_floor` = Kammer-Boden (heizen wenn Kammer ≤ `target−dt_floor`),
+`dt_ceil` = Kammer-Deckel (rastende Überschwing-Bremse: sperren wenn Kammer ≥
+`target+dt_ceil`, frei bei `target`). Im Profil variiert i. d. R. nur `target` pro
+Schritt; die Deltas sind globale Geräte-Konstanten.
 
 ## Verhalten / Autonomie
 
