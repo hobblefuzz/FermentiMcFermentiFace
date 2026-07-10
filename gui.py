@@ -59,9 +59,10 @@ def _build_menu_tree():
     # Temperatures step in 0.1 °C (step 1 on the x10 keys).
     TEMP = [
         ("Heating",      "heat_enabled",    "bool",  0,    1,  "",    1),
-        ("Heat on",      "heat_lower_x10",  "int",   0,  800,  "C",   1),  # core below → heat
-        ("Heat off",     "heat_upper_x10",  "int",   0,  800,  "C",   1),  # core above → stop
-        ("Min room",     "min_room_x10",    "int",   0,  800,  "C",   1),  # room below → heat
+        ("Target",       "target_x10",      "int",   0,  800,  "C",   1),  # core setpoint
+        ("Core dT",      "dt_lower_x10",    "int",   1,   50,  "C",   1),  # heat below target−dT
+        ("Floor dT",     "dt_floor_x10",    "int",   0,  100,  "C",   1),  # heat if chamber ≤ target−dT
+        ("Ceil dT",      "dt_ceil_x10",     "int",   1,  100,  "C",   1),  # brake: block if chamber ≥ target+dT
         ("Relay min",    "relay_min_s",     "int",  10,  600,  "s",   5),
         ("Cooling",      "temp_enabled",    "bool",  0,    1,  "",    1),
         ("Cool on",      "temp_upper_x10",  "int",   0,  800,  "C",   1),  # core above → fans
@@ -92,6 +93,11 @@ def _build_menu_tree():
 MENU_TREE = _build_menu_tree()
 
 
+# x10 temperature keys that are DELTAS (differences), not absolute temperatures.
+# They convert to °F by scaling only (×9/5), without the +32 offset.
+_DELTA_KEYS = frozenset(("dt_lower_x10", "dt_floor_x10", "dt_ceil_x10"))
+
+
 # ─────────────────────────────────────── helpers
 def _fmt_value(key, raw_val, use_fahrenheit=False):
     """Format a raw config value for display (max ~8 chars)."""
@@ -103,7 +109,8 @@ def _fmt_value(key, raw_val, use_fahrenheit=False):
     if key.endswith("_x10"):
         c = raw_val / 10.0
         if use_fahrenheit:
-            return f"{c*9/5+32:.1f}F"
+            f = c * 9 / 5 if key in _DELTA_KEYS else c * 9 / 5 + 32
+            return f"{f:.1f}F"
         return f"{c:.1f}C"
     return str(raw_val)
 
@@ -228,23 +235,26 @@ class EditScreen:
             cfg = self._cfg
             if key.endswith("_lower") or key.endswith("_lower_x10"):
                 upper_key = key.replace("_lower", "_upper")
-                upper_val = getattr(cfg, upper_key)
-                val = min(val, upper_val)
+                try:                       # standalone deltas (dt_lower) have no pair
+                    val = min(val, getattr(cfg, upper_key))
+                except AttributeError:
+                    pass
             elif key.endswith("_upper") or key.endswith("_upper_x10"):
                 lower_key = key.replace("_upper", "_lower")
-                lower_val = getattr(cfg, lower_key)
-                val = max(val, lower_val)
+                try:
+                    val = max(val, getattr(cfg, lower_key))
+                except AttributeError:
+                    pass
 
-            # Cross-constraint: heating band must stay below cooling band so
-            # heater and fans never fight (deadband).  heat_upper ≤ temp_lower.
-            if key == "heat_upper_x10":
+            # Cross-constraint: the heating target must stay below the cooling
+            # band so heater and fans never fight (deadband).  target ≤ temp_lower.
+            if key == "target_x10":
                 val = min(val, cfg.temp_lower_x10)
             elif key == "temp_lower_x10":
-                val = max(val, cfg.heat_upper_x10)
+                val = max(val, cfg.target_x10)
 
-            # (min_room is intentionally unconstrained — it's a general room
-            # floor and may sit below the core band.  The runtime safety gate
-            # "no heating once core ≥ heat_upper" is the real protection.)
+            # (The three deltas are unconstrained differences; the runtime safety
+            # gate "no heating once core ≥ target" is the real protection.)
 
             setattr(cfg, key, val)
         return T.BACK

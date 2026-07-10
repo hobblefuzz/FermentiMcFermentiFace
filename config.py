@@ -26,17 +26,21 @@ DEFAULTS = {
     "wifi_en":          0,    # bool        connect to WiFi (creds in secrets.py)
     "ext_ctrl":         0,    # bool        apply setpoints from the Pi (external)
 
-    # Heating (relay) — references the DS18B20 core temperature.
-    # Inverted hysteresis: ON below heat_lower, OFF above heat_upper.
-    # Constraint enforced in GUI: heat_upper <= temp_lower (deadband).
-    # min_room is a general room floor (may sit below the core band); the
-    # runtime gate "no heating once core >= heat_upper" is the safety.
+    # Heating (relay) — Ziel-T setpoint scheme on the DS18B20 core temperature.
+    # One target + three deltas (all °C, stored ×10):
+    #   dt_lower : core hysteresis  — heater ON when core ≤ target − dt_lower, OFF at target
+    #   dt_floor : chamber floor    — also heat when chamber (BME280) ≤ target − dt_floor
+    #              (arrests the core undershoot after fan cooling has chilled the air)
+    #   dt_ceil  : chamber ceiling  — LATCHING overshoot brake: block heating when
+    #              chamber ≥ target + dt_ceil, release only when chamber ≤ target.
+    # Constraint enforced in GUI: target ≤ temp_lower (deadband vs. cooling).
+    # Runtime safety gate: heater forced OFF once core ≥ target.
     "heat_enabled":     0,    # bool        default OFF until sensor wired
-    "heat_lower_x10": 290,    # int         0-800 (= 29.0 °C) heater ON below (core)
-    "heat_upper_x10": 300,    # int         0-800 (= 30.0 °C) heater OFF above (core)
-    "min_room_x10":   280,    # int         0-800 (= 28.0 °C) room floor: heat if
-                              #             chamber (BME280) drops below this
-    "relay_min_s":60,   # int         10-600 s anti-short-cycle
+    "target_x10":     300,    # int         0-800 (= 30.0 °C) core target temperature
+    "dt_lower_x10":     5,    # int         1-50  (= 0.5 °C)  core hysteresis band
+    "dt_floor_x10":    20,    # int         0-100 (= 2.0 °C)  chamber floor below target
+    "dt_ceil_x10":     20,    # int         1-100 (= 2.0 °C)  chamber ceiling above target
+    "relay_min_s":     60,    # int         10-600 s anti-short-cycle
 
     # RH Control
     "rh_enabled":       1,    # bool
@@ -129,28 +133,36 @@ class Config:
         self.temp_upper_x10 = round(c * 10)
 
     @property
-    def heat_lower(self) -> float:
-        return self.heat_lower_x10 / 10.0
+    def target(self) -> float:
+        return self.target_x10 / 10.0
 
-    @heat_lower.setter
-    def heat_lower(self, c: float):
-        self.heat_lower_x10 = round(c * 10)
-
-    @property
-    def heat_upper(self) -> float:
-        return self.heat_upper_x10 / 10.0
-
-    @heat_upper.setter
-    def heat_upper(self, c: float):
-        self.heat_upper_x10 = round(c * 10)
+    @target.setter
+    def target(self, c: float):
+        self.target_x10 = round(c * 10)
 
     @property
-    def min_room(self) -> float:
-        return self.min_room_x10 / 10.0
+    def dt_lower(self) -> float:
+        return self.dt_lower_x10 / 10.0
 
-    @min_room.setter
-    def min_room(self, c: float):
-        self.min_room_x10 = round(c * 10)
+    @dt_lower.setter
+    def dt_lower(self, c: float):
+        self.dt_lower_x10 = round(c * 10)
+
+    @property
+    def dt_floor(self) -> float:
+        return self.dt_floor_x10 / 10.0
+
+    @dt_floor.setter
+    def dt_floor(self, c: float):
+        self.dt_floor_x10 = round(c * 10)
+
+    @property
+    def dt_ceil(self) -> float:
+        return self.dt_ceil_x10 / 10.0
+
+    @dt_ceil.setter
+    def dt_ceil(self, c: float):
+        self.dt_ceil_x10 = round(c * 10)
 
     # ------------------------------------------------ volatile (remote) values
     def set_volatile(self, name, value):

@@ -11,15 +11,18 @@ Fan logic (OR for ON, AND for OFF), all on core temp:
  - Temp control: fan on  when core ≥ temp_upper,    off when core ≤ temp_lower
  - IDLE:         fan on  after idle_max_idle min idle, off after idle_duration
 
-Heating logic (relay), core temp AND a room-temperature floor:
- - core hysteresis:  on when core ≤ heat_lower,  off when core ≥ heat_upper
- - room floor:       on when chamber ≤ min_room  (arrests the core undershoot
-                     when fan cooling has chilled the chamber air)
- - SAFETY GATE:      the heater is forced OFF whenever core ≥ heat_upper — so
-                     neither trigger can ever push the core past its ceiling
-                     (protects against "warm core, cold chamber").
- The GUI enforces heat_upper ≤ temp_lower (deadband vs. cooling) and
- min_room ≥ heat_lower.
+Heating logic (relay) — Ziel-T target + three deltas:
+ - core hysteresis:  on when core ≤ target − dt_lower,  off when core ≥ target
+ - chamber floor:    on when chamber ≤ target − dt_floor  (arrests the core
+                     undershoot when fan cooling has chilled the chamber air)
+ - chamber ceiling:  LATCHING overshoot brake — heating is blocked once chamber
+                     ≥ target + dt_ceil and released only when chamber ≤ target.
+                     Caps the fast chamber excursion so the slow core can't
+                     overshoot the target by more than ~dt_ceil, regardless of
+                     the chamber→core dead-time.
+ - SAFETY GATE:      the heater is forced OFF whenever core ≥ target — so no
+                     trigger can push the core past its target.
+ The GUI enforces target ≤ temp_lower (deadband vs. cooling).
 
 Safety
 ------
@@ -52,7 +55,8 @@ class VentilationController:
         self._temp_active = False
         self._idle_active = False
         self._heat_core   = False   # core-temp heating hysteresis state
-        self._heat_room   = False   # room-floor heating hysteresis state
+        self._heat_room   = False   # chamber-floor heating hysteresis state
+        self._heat_block  = False   # chamber-ceiling overshoot brake (latching)
         self._heat_want   = False
 
         self._last_fan_on  = time.time()
@@ -81,6 +85,7 @@ class VentilationController:
         if not cfg.ctrl_enabled:
             self._rh_active = self._temp_active = self._idle_active = False
             self._heat_core = self._heat_room = self._heat_want = False
+            self._heat_block = False
             self._emergency = False
             if self.heater:
                 self.heater.off()
@@ -93,27 +98,43 @@ class VentilationController:
             self.heater.min_cycle_s = cfg.relay_min_s   # apply menu changes live
             if self._chamber_alarm or self._core_fault or not cfg.heat_enabled:
                 self._heat_core = self._heat_room = self._heat_want = False
+                self._heat_block = False
                 self.heater.off()
             else:
-                # Core-temperature hysteresis
-                if core_temp_c <= cfg.heat_lower:
+                target = cfg.target
+
+                # Core-temperature hysteresis: on below target−dt_lower, off at target
+                if core_temp_c <= target - cfg.dt_lower:
                     self._heat_core = True
-                elif core_temp_c >= cfg.heat_upper:
+                elif core_temp_c >= target:
                     self._heat_core = False
 
-                # Room-temperature floor (BME280), only on a valid reading
+                # Chamber floor (BME280): heat if the air has been chilled below
+                # target−dt_floor.  Only on a valid reading.
                 if chamber_temp_c is not None:
-                    if chamber_temp_c <= cfg.min_room:
+                    floor = target - cfg.dt_floor
+                    if chamber_temp_c <= floor:
                         self._heat_room = True
-                    elif chamber_temp_c >= cfg.min_room + _ROOM_HYST:
+                    elif chamber_temp_c >= floor + _ROOM_HYST:
                         self._heat_room = False
-                else:
-                    self._heat_room = False
 
-                # Combine, then the safety gate: never push the core past its
-                # ceiling, no matter how cold the chamber is.
+                    # Chamber ceiling — latching overshoot brake: block once the
+                    # air runs away above target+dt_ceil, release at target.
+                    if chamber_temp_c >= target + cfg.dt_ceil:
+                        self._heat_block = True
+                    elif chamber_temp_c <= target:
+                        self._heat_block = False
+                else:
+                    # No chamber reading → can't run the floor or the brake.
+                    self._heat_room  = False
+                    self._heat_block = False
+
+                # Combine; the brake caps the chamber excursion, then the safety
+                # gate makes sure nothing pushes the core past its target.
                 want = self._heat_core or self._heat_room
-                if core_temp_c >= cfg.heat_upper:
+                if self._heat_block:
+                    want = False
+                if core_temp_c >= target:
                     want = False
                 self._heat_want = want
                 self.heater.request(want)
