@@ -26,6 +26,7 @@ from controller  import VentilationController
 from gui         import GUI
 from wifi        import WiFi
 from netclient   import NetClient
+from timesync    import TimeSync
 
 # WiFi / Pi credentials live in secrets.py (gitignored). Missing → offline.
 try:
@@ -118,6 +119,16 @@ def boot():
         else:
             print("[main] WiFi connect failed — running offline")
 
+    # Wall-clock via NTP (router first, public pool fallback), before the WDT is
+    # armed like the WiFi connect.  Needed for autonomous profile scheduling.
+    ts = TimeSync()
+    if cfg.wifi_en and wifi.connected:
+        if ts.sync([wifi.gateway(), "pool.ntp.org"]):
+            print(f"[main] NTP time set: unix {ts.unix_time()}")
+        else:
+            print("[main] NTP sync failed — will retry in the loop")
+    ctrl.reset_timers()   # neutralise the boot-time clock jump for idle timing
+
     # Hardware watchdog — only armed if enabled in config.  NOTE: once the
     # ESP32 WDT is created it cannot be stopped; toggling it off in the menu
     # takes effect only after a reboot.
@@ -128,7 +139,7 @@ def boot():
 
     print("[main] Boot complete — entering main loop")
     _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net,
-               fan1, fan2)
+               fan1, fan2, ts)
 
 
 def _pad(s, w):
@@ -137,12 +148,13 @@ def _pad(s, w):
 
 
 # ─────────────────────────────────────── main loop
-def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2):
+def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2, ts):
     TICK_MS      = 50       # GUI/encoder poll interval
     GC_PERIOD_MS = 60_000   # explicit gc.collect every minute
     last_sense    = time.ticks_ms() - cfg.interval_s * 1000  # measure immediately
     last_gc       = time.ticks_ms()
     last_wifi     = time.ticks_ms()
+    last_ntp      = time.ticks_ms()
     awaiting_core = False    # True while a DS18B20 conversion is in flight
 
     while True:
@@ -206,6 +218,16 @@ def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2):
             elif time.ticks_diff(now, last_wifi) >= 15000:
                 last_wifi = now
                 wifi.ensure()          # non-blocking reconnect nudge
+
+            # NTP: retry fast until the first sync, then refresh occasionally.
+            # Each attempt is bounded by the socket timeout (< watchdog window).
+            due = 60_000 if not ts.synced else 6 * 3600 * 1000
+            if wifi.connected and time.ticks_diff(now, last_ntp) >= due:
+                last_ntp = now
+                was = ts.synced
+                if ts.sync([wifi.gateway(), "pool.ntp.org"]) and not was:
+                    ctrl.reset_timers()   # first real time after boot → clock jump
+                    print(f"[main] NTP synced (loop): unix {ts.unix_time()}")
 
         # ── Feed the watchdog (only if armed)
         if wdt:

@@ -191,6 +191,13 @@ class VentilationController:
         if self.heater:
             self.heater.off()
 
+    def reset_timers(self):
+        """Re-stamp the interval timers to now — call after the wall clock
+        jumps (e.g. an NTP sync), so the idle-ventilation timing isn't thrown
+        off by the discontinuity (these use time.time())."""
+        self._last_fan_on  = time.time()
+        self._idle_started = self._last_fan_on
+
     # ------------------------------------------------------------ properties
     @property
     def fans_running(self) -> bool:

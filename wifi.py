@@ -55,6 +55,13 @@ class WiFi:
         except Exception:
             return None
 
+    def gateway(self):
+        """Router IP (default gateway) — used as the primary NTP host."""
+        try:
+            return self._wlan.ifconfig()[2] if self._wlan.isconnected() else None
+        except Exception:
+            return None
+
     def off(self):
         try:
             self._wlan.disconnect()
