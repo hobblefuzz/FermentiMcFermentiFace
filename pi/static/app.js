@@ -1,16 +1,17 @@
 "use strict";
 
-// Field order matches the profile table columns in index.html
+// Field order matches the profile table columns in index.html.
+// Heating is a single target per step; the deltas are global (in Settings).
 const TEMP_FIELDS = [
-  ["heat_lower", "Heat on"], ["heat_upper", "Heat off"], ["min_room", "Min room"],
+  ["target", "Ziel"],
   ["temp_upper", "Cool on"], ["temp_lower", "Cool off"],
   ["rh_upper", "RH high"], ["rh_lower", "RH low"],
 ];
 
 // "Settings" grouped by function; third element = boolean toggle
 const MANUAL_GROUPS = [
-  ["Heizung", [["heat_enabled", "Ein", true], ["heat_lower", "Heat on"],
-    ["heat_upper", "Heat off"], ["min_room", "Min room"]]],
+  ["Heizung", [["heat_enabled", "Ein", true], ["target", "Ziel-T"],
+    ["dt_lower", "Δ Kern"], ["dt_floor", "Δ Boden"], ["dt_ceil", "Δ Deckel"]]],
   ["Kühlung", [["temp_enabled", "Ein", true], ["temp_upper", "Cool on"],
     ["temp_lower", "Cool off"], ["temp_pwm_f1", "PWM 1"], ["temp_pwm_f2", "PWM 2"]]],
   ["RH-Regelung", [["rh_enabled", "Ein", true], ["rh_upper", "RH high"],
@@ -439,8 +440,8 @@ const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replac
 
 function stepDesc(p) {
   const sp = p.setpoints || {}, parts = [];
-  if (sp.heat_lower != null || sp.heat_upper != null)
-    parts.push(`Heizen ${sp.heat_lower ?? "?"}-${sp.heat_upper ?? "?"} C`);
+  if (sp.target != null)
+    parts.push(`Ziel ${sp.target} C`);
   if (sp.temp_upper != null) parts.push(`Lüften ab ${sp.temp_upper} C`);
   if (sp.rh_lower != null || sp.rh_upper != null)
     parts.push(`RH ${sp.rh_lower ?? "?"}-${sp.rh_upper ?? "?"} %`);
