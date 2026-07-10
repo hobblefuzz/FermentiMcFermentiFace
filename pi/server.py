@@ -231,6 +231,7 @@ def profile_action(action):
         logging_on = True        # auto-start logging with the profile
     elif action == "stop":
         profile.stop()
+    profile.save(PROFILE_FILE)   # persist run-state so a restart resumes it
     return jsonify(profile.to_dict())
 
 

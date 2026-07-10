@@ -75,12 +75,25 @@ class Profile:
         }
 
     def load(self, path):
+        """Restore points AND run-state, so a server restart resumes the
+        profile at the correct step instead of losing it."""
         try:
             with open(path) as f:
-                self.points = json.load(f).get("points", [])
+                d = json.load(f)
+            self.points     = d.get("points", [])
+            self.running    = bool(d.get("running", False))
+            self.started_at = d.get("started_at")
+            if self.running and self.started_at is None:
+                self.running = False        # guard against a corrupt half-state
         except Exception:
             self.points = []
+            self.running = False
+            self.started_at = None
 
     def save(self, path):
         with open(path, "w") as f:
-            json.dump({"points": self.points}, f, indent=2)
+            json.dump({
+                "points":     self.points,
+                "running":    self.running,
+                "started_at": self.started_at,
+            }, f, indent=2)
