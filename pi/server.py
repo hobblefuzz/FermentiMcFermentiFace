@@ -324,6 +324,21 @@ def track():
     return jsonify({"ok": True})
 
 
+@app.route("/api/track/reset", methods=["POST"])
+def track_reset():
+    """Delete a tracker's logged rows (device=<id>), or all if unspecified."""
+    dev = request.args.get("device")
+    c = _db()
+    if dev:
+        c.execute("DELETE FROM tracker WHERE device=?", (dev,))
+        last_tracker.pop(dev, None)
+    else:
+        c.execute("DELETE FROM tracker")
+        last_tracker.clear()
+    c.commit(); c.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/track/latest")
 def track_latest():
     return jsonify(last_tracker)

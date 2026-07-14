@@ -69,6 +69,7 @@ canvas { width:100%; height:auto; display:block; background:#0c0f13; border-radi
 .tip .t { color:var(--dim); margin-bottom:.25rem; }
 .tip .trow { display:flex; gap:1.1rem; justify-content:space-between; }
 .tip b.core { color:var(--core); } .tip b.cham { color:var(--cham); } .tip b.rh { color:var(--rh); }
+.tip b.batt { color:var(--batt); }
 
 .legend { display:flex; gap:1.1rem; margin-top:.6rem; font-size:.85rem; color:var(--dim); flex-wrap:wrap; }
 .scalectl { display:flex; gap:.6rem; align-items:center; margin-top:.5rem; font-size:.85rem;

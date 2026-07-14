@@ -23,7 +23,7 @@ const MANUAL_GROUPS = [
 const $ = id => document.getElementById(id);
 const live = $("live"), profState = $("profState"), profBody = $("profBody"),
       ranges = $("ranges"), canvas = $("chart"), tip = $("tip");
-const mCanvas = $("mChart"), mLive = $("mLive");
+const mCanvas = $("mChart"), mLive = $("mLive"), mTip = $("mTip");
 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = v => (v === null || v === undefined) ? "--" : v;
@@ -82,6 +82,7 @@ const PLAUSIBLE = v => v != null && v > -20 && v < 80;   // reject sensor glitch
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
 let activeView = "koji";
 let mRangeMin = 1440, mCW = 900, mCH = 300;        // Moromi chart
+let mRows = [], mPlot = null;                        // last Moromi data + scale for hover
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
   CW = canvas.clientWidth || 900;
@@ -287,7 +288,7 @@ function drawMoromi(rows) {
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
   if (!rows.length) {
     ctx.fillStyle = css("--dim"); ctx.textAlign = "left";
-    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); return;
+    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); mPlot = null; return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
   const temps = rows.filter(r => PLAUSIBLE(r.temp)).map(r => r.temp);
@@ -349,7 +350,58 @@ function drawMoromi(rows) {
     const ts = t0 + tSpan * i / steps;
     ctx.fillText(mLabel(new Date(ts * 1000)), sx(ts), y0 + 6);
   }
+  mPlot = { rows, t0, tSpan, x0, x1, y0, y1, sx, syT, syB, hasBatt };
 }
+
+// ─────────────────────────────────────── Moromi hover tooltip
+function mNearestRow(mx) {
+  const r = mPlot.rows;
+  const t = mPlot.t0 + (mx - mPlot.x0) / (mPlot.x1 - mPlot.x0) * mPlot.tSpan;
+  let lo = 0, hi = r.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (r[m].ts < t) lo = m + 1; else hi = m; }
+  if (lo > 0 && Math.abs(r[lo - 1].ts - t) < Math.abs(r[lo].ts - t)) lo -= 1;
+  return r[lo];
+}
+function drawMoromiHover(row) {
+  const ctx = mCanvas.getContext("2d"), px = mPlot.sx(row.ts);
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(px, mPlot.y1); ctx.lineTo(px, mPlot.y0); ctx.stroke();
+  ctx.setLineDash([]);
+  const dot = (v, sy, color) => {
+    if (v == null) return;
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, sy(v), 3.4, 0, 6.29); ctx.fill();
+    ctx.strokeStyle = "#0c0f13"; ctx.lineWidth = 1.2; ctx.stroke();
+  };
+  dot(row.temp, mPlot.syT, css("--core"));
+  if (mPlot.hasBatt) dot(row.batt, mPlot.syB, css("--batt"));
+  ctx.restore();
+}
+function mHideTip() {
+  mTip.hidden = true;
+  if (mRows.length) drawMoromi(mRows);
+}
+function mOnHover(e) {
+  if (!mPlot || !mPlot.rows.length) { mHideTip(); return; }
+  const rect = mCanvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (mCW / rect.width);
+  if (mx < mPlot.x0 || mx > mPlot.x1) { mHideTip(); return; }
+  const row = mNearestRow(mx);
+  drawMoromi(mRows);        // redraw base, then overlay crosshair
+  drawMoromiHover(row);
+  const d = new Date(row.ts * 1000);
+  const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
+  let html = `<div class="t">${clock}</div>` +
+    `<div class="trow"><span>Temp</span><b class="core">${fmt(row.temp)} °C</b></div>`;
+  if (row.batt != null)
+    html += `<div class="trow"><span>Batterie</span><b class="batt">${fmt(row.batt)} V</b></div>`;
+  mTip.innerHTML = html;
+  mTip.hidden = false;
+  const cssX = mPlot.sx(row.ts) * (rect.width / mCW);
+  mTip.style.left = Math.max(60, Math.min(rect.width - 60, cssX)) + "px";
+}
+mCanvas.addEventListener("mousemove", mOnHover);
+mCanvas.addEventListener("mouseleave", mHideTip);
 
 async function pollMoromi() {
   if (activeView !== "moromi") return;
@@ -359,6 +411,7 @@ async function pollMoromi() {
       fetch("/api/track/log?device=moromi&since=" + since).then(r => r.json()),
       fetch("/api/track/latest").then(r => r.json()),
     ]);
+    mRows = rows;
     drawMoromi(rows);
     const m = latest.moromi;
     let h = "";
@@ -596,6 +649,11 @@ $("mRanges").querySelectorAll("button").forEach(b => b.onclick = () => {
   b.classList.add("active"); mRangeMin = +b.dataset.min; pollMoromi();
 });
 $("mCsv").onclick = () => { location.href = "/api/track/export.csv?device=moromi"; };
+$("mPlotReset").onclick = async () => {
+  if (!confirm("Alle Moromi-Messdaten unwiderruflich löschen (Plot + CSV)?")) return;
+  await fetch("/api/track/reset?device=moromi", { method: "POST" });
+  pollMoromi();
+};
 document.querySelectorAll(".navbtn").forEach(b => b.onclick = () => showView(b.dataset.view));
 
 // temperature-scale control (auto / manual), persisted in the browser
