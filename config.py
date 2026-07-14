@@ -25,6 +25,7 @@ DEFAULTS = {
     "wdt_enabled":      0,    # bool        hardware watchdog (applies on reboot)
     "wifi_en":          0,    # bool        connect to WiFi (creds in secrets.py)
     "ext_ctrl":         0,    # bool        apply setpoints from the Pi (external)
+    "utc_offset_h":     2,    # int         -12..14  local-time offset for the clock display (UTC+h)
 
     # Heating (relay) — Ziel-T setpoint scheme on the DS18B20 core temperature.
     # One target + three deltas (all °C, stored ×10):

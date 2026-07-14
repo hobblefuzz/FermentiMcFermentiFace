@@ -45,6 +45,8 @@ def _build_menu_tree():
         ("Watchdog",     "wdt_enabled",     "bool",  0,    1,  "",    1),
         ("WiFi",         "wifi_en",         "bool",  0,    1,  "",    1),
         ("Ext ctrl",     "ext_ctrl",        "bool",  0,    1,  "",    1),
+        ("Time",         "time"),                                  # read-only NTP clock
+        ("UTC offset",   "utc_offset_h",    "int",  -12,  14,  "h",   1),
         ("< Back",       "back"),
     ]
     RH = [
@@ -121,6 +123,15 @@ def _pad(s: str, width: int) -> str:
     if len(s) < width:
         s = s + " " * (width - len(s))
     return s
+
+
+def _clock_str(cfg) -> str:
+    """HH:MM from the RTC (+ display offset), or --:-- if not NTP-synced yet.
+    The RTC holds UTC; the year is still at its power-on default until NTP sets it."""
+    tm = time.localtime(time.time() + cfg.utc_offset_h * 3600)
+    if tm[0] < 2024:
+        return "--:--"
+    return "%02d:%02d" % (tm[3], tm[4])
 
 
 # ─────────────────────────────────────── HomeScreen
@@ -361,6 +372,8 @@ class MenuScreen:
                 return T.BACK
             if payload == "home":
                 return T.HOME
+            if payload == "time":
+                return T.NONE          # read-only clock — nothing to enter
             if payload == "reset":
                 self._sub = ConfirmScreen(self._cfg)
                 self._invalidate()
@@ -403,6 +416,8 @@ class MenuScreen:
 
     def _item_label(self, item) -> str:
         if len(item) == 2:
+            if item[1] == "time":
+                return _pad(item[0] + " " + _clock_str(self._cfg), 15)
             return item[0]
         # item_def — append current value
         label, key, typ, *_ = item
