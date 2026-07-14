@@ -27,6 +27,7 @@ from gui         import GUI
 from wifi        import WiFi
 from netclient   import NetClient
 from timesync    import TimeSync
+from curve       import LocalCurve
 
 # WiFi / Pi credentials live in secrets.py (gitignored). Missing → offline.
 try:
@@ -110,7 +111,8 @@ def boot():
 
     # WiFi + Pi client (blocking connect here, BEFORE the WDT is armed)
     wifi = WiFi(secrets.WIFI_SSID, secrets.WIFI_PASS)
-    net  = NetClient(cfg, secrets.PI_HOST, secrets.PI_PORT)
+    localcurve = LocalCurve()          # profile copy in flash for autonomous run
+    net  = NetClient(cfg, secrets.PI_HOST, secrets.PI_PORT, curve=localcurve)
     if cfg.wifi_en and secrets.WIFI_SSID:
         lcd.move_to(0, 1)
         lcd.putstr(_pad("WiFi connect... ", 16))
@@ -214,10 +216,13 @@ def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2, ts
                         "core_fault": ctrl.core_fault,
                         "chamber_alarm": ctrl.chamber_alarm,
                         "ext": cfg.ext_ctrl,
+                        "prof_ver": net.held_ver,
                     })
-            elif time.ticks_diff(now, last_wifi) >= 15000:
-                last_wifi = now
-                wifi.ensure()          # non-blocking reconnect nudge
+            else:
+                net.online = False     # WiFi down → Pi unreachable → allow autonomy
+                if time.ticks_diff(now, last_wifi) >= 15000:
+                    last_wifi = now
+                    wifi.ensure()      # non-blocking reconnect nudge
 
             # NTP: retry fast until the first sync, then refresh occasionally.
             # Each attempt is bounded by the socket timeout (< watchdog window).
@@ -228,6 +233,10 @@ def _main_loop(cfg, sensor, core, ctrl, enc, gui, wdt, wifi, net, fan1, fan2, ts
                 if ts.sync([wifi.gateway(), "pool.ntp.org"]) and not was:
                     ctrl.reset_timers()   # first real time after boot → clock jump
                     print(f"[main] NTP synced (loop): unix {ts.unix_time()}")
+
+            # Autonomous fallback: when the Pi is unreachable, drive setpoints
+            # from the local flash curve using the NTP wall clock.
+            net.run_local(ts.unix_time())
 
         # ── Feed the watchdog (only if armed)
         if wdt:

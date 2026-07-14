@@ -11,7 +11,10 @@ external control off restores the persisted local values via cfg.reload().
 
 import socket
 import time
-import ujson
+try:
+    import ujson
+except ImportError:                 # CPython (tests)
+    import json as ujson
 
 
 # Protocol field (°C / raw) → (NVS key, is_temp_x10)
@@ -68,26 +71,38 @@ def _post_json(host, port, path, obj, timeout=2):
 
 class NetClient:
     def __init__(self, cfg, host, port, poll_interval_s=5, fail_limit=3,
-                 poll_interval_off=30):
-        self._cfg  = cfg
-        self._host = host
-        self._port = port
+                 poll_interval_off=30, curve=None):
+        self._cfg   = cfg
+        self._host  = host
+        self._port  = port
+        self._curve = curve      # LocalCurve for autonomous fallback (may be None)
         self.poll_interval_s   = poll_interval_s    # cadence when the Pi answers
         self.poll_interval_off = poll_interval_off  # slow retry when unreachable
         self._fail_limit = fail_limit
         self._last_poll = time.ticks_ms() - poll_interval_s * 1000
         self._fails = 0
-        self.online   = False    # Pi reachable
-        self.applying = False    # currently driving setpoints from the Pi
-        self.pi_time  = 0        # last epoch received from Pi
+        self.online     = False  # Pi reachable
+        self.applying   = False  # currently driving setpoints (Pi or local curve)
+        self.autonomous = False  # driving from the local curve (Pi unreachable)
+        self.pi_time    = 0      # last epoch received from Pi
+
+    @property
+    def held_ver(self):
+        """Profile version currently stored in flash (0 = none) — advertised to
+        the Pi so it only re-sends the curve on a mismatch."""
+        return self._curve.ver if self._curve is not None else 0
 
     # ------------------------------------------------------------------ API
     def sync_mode(self):
-        """Call every loop: restore local NVS values when the user turns
-        external control off (works even while the Pi is offline)."""
-        if not self._cfg.ext_ctrl and self.applying:
-            self._cfg.reload()
-            self.applying = False
+        """Call every loop: when the user turns external control off, restore the
+        local NVS values and forget any stored profile (works while offline too)."""
+        if not self._cfg.ext_ctrl:
+            if self.applying:
+                self._cfg.reload()
+                self.applying = False
+                self.autonomous = False
+            if self._curve is not None and self._curve.loaded:
+                self._curve.clear()
 
     def due(self):
         # Back off to the slow cadence once the Pi has failed to answer
@@ -111,18 +126,48 @@ class NetClient:
             print("[net] poll failed:", e)
             return False
 
+    def run_local(self, now_epoch):
+        """Autonomous fallback: when the Pi is unreachable, drive setpoints from
+        the local flash curve using the NTP wall clock.  No-op while the Pi is
+        online (it is authoritative), when external control is off, or without a
+        loaded curve / valid time."""
+        if self.online or not self._cfg.ext_ctrl:
+            return
+        if self._curve is None or not self._curve.loaded or now_epoch is None:
+            return
+        sp = self._curve.current_setpoints(now_epoch)
+        if sp:
+            self._apply_setpoints(sp)
+            self.applying   = True
+            self.autonomous = True
+
     # --------------------------------------------------------------- helpers
+    def _apply_setpoints(self, sp):
+        for field, (key, is_x10) in _REMOTE_FIELDS.items():
+            if field in sp:
+                v = sp[field]
+                self._cfg.set_volatile(key, int(round(v * 10)) if is_x10 else int(v))
+
     def _apply(self, data):
         if "time" in data:
             self.pi_time = data["time"]
-        # Only drive setpoints when the user has enabled external control.
+
+        # Keep the local flash curve in sync with the Pi's active profile.
+        if self._curve is not None:
+            prof = data.get("profile")
+            if prof and prof.get("points") is not None:
+                self._curve.set(prof["points"], prof.get("start_epoch"),
+                                prof.get("ver", 0))
+            elif not data.get("running") or data.get("prof_ver", 0) == 0:
+                if self._curve.loaded:
+                    self._curve.clear()   # profile stopped → forget it
+
+        # Drive setpoints from the Pi while external control is on.
         if self._cfg.ext_ctrl and data.get("setpoints"):
-            sp = data["setpoints"]
-            for field, (key, is_x10) in _REMOTE_FIELDS.items():
-                if field in sp:
-                    v = sp[field]
-                    self._cfg.set_volatile(key, int(round(v * 10)) if is_x10 else int(v))
-            self.applying = True
+            self._apply_setpoints(data["setpoints"])
+            self.applying   = True
+            self.autonomous = False       # the Pi is driving now
         elif not self._cfg.ext_ctrl and self.applying:
             self._cfg.reload()
             self.applying = False
+            self.autonomous = False
