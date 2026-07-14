@@ -17,11 +17,14 @@ class Profile:
         self.points = []          # [{"t": seconds, "setpoints": {...}}]
         self.started_at = None
         self.running = False
+        self.ver = 0              # bumps on start/edit; identifies the active curve
+                                  # so the ESP32 knows when to re-fetch it (3d)
 
     # ---------------------------------------------------------------- run
     def start(self):
         self.started_at = time.time()
         self.running = True
+        self.ver += 1
 
     def stop(self):
         self.running = False
@@ -35,6 +38,7 @@ class Profile:
     # ------------------------------------------------------------- points
     def set_points(self, points):
         self.points = sorted(points, key=lambda p: p.get("t", 0))
+        self.ver += 1             # content changed → new version for the ESP32
 
     def current_setpoints(self):
         """Forward-merged setpoints for the elapsed time."""
@@ -71,6 +75,7 @@ class Profile:
             "running":    self.running,
             "elapsed":    round(self.elapsed(), 1),
             "started_at": self.started_at,
+            "ver":        self.ver,
             "step":       self.current_name() if self.running else "",
         }
 
@@ -83,12 +88,14 @@ class Profile:
             self.points     = d.get("points", [])
             self.running    = bool(d.get("running", False))
             self.started_at = d.get("started_at")
+            self.ver        = d.get("ver", 0)
             if self.running and self.started_at is None:
                 self.running = False        # guard against a corrupt half-state
         except Exception:
             self.points = []
             self.running = False
             self.started_at = None
+            self.ver = 0
 
     def save(self, path):
         with open(path, "w") as f:
@@ -96,4 +103,5 @@ class Profile:
                 "points":     self.points,
                 "running":    self.running,
                 "started_at": self.started_at,
+                "ver":        self.ver,
             }, f, indent=2)

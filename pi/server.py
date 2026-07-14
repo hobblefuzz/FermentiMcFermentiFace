@@ -149,11 +149,22 @@ def poll():
         else:
             _last_step = -2
 
-    return jsonify({
+    resp = {
         "time": int(time.time()),
         "running": profile.running,
         "setpoints": current_setpoints(),
-    })
+        # prof_ver identifies the active curve; 0 = no running profile → the
+        # ESP32 clears its local copy.  The full curve rides along only when the
+        # ESP32 advertises a different version (start / edit / it lost its copy).
+        "prof_ver": profile.ver if profile.running else 0,
+    }
+    if profile.running and tel.get("prof_ver", 0) != profile.ver:
+        resp["profile"] = {
+            "start_epoch": profile.started_at,   # Unix epoch, matches the ESP32
+            "ver":         profile.ver,
+            "points":      profile.points,
+        }
+    return jsonify(resp)
 
 
 @app.route("/api/status")
