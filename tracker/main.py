@@ -33,6 +33,12 @@ INTERVAL_S    = 30 * 60      # deep-sleep interval (30 min)
 ONEWIRE_PIN   = 4            # DS18B20 data (4.7 kΩ pull-up to 3.3 V)
 WIFI_TIMEOUT  = 20           # s to wait for a connection
 
+# Wake button: momentary switch from WAKE_PIN to GND, ends deep sleep on press.
+# Must be an RTC-capable GPIO (0, 2, 4, 12-15, 25-27, 32-39) — GPIO34-39 are
+# input-only with no internal pull-ups, so they'd need an external one.
+# Set to None to disable.
+WAKE_PIN      = 33
+
 # Battery sense (optional). Set BATT_ADC_PIN to an ADC1 pin (32-39) and wire a
 # divider from the LiPo; leave None to disable. BATT_DIVIDER = Vbatt/Vpin.
 BATT_ADC_PIN  = 32
@@ -134,13 +140,47 @@ def run():
         print("[track] no WiFi")
 
 
-# On a manual reset / power-on (not a timed deep-sleep wake), pause first so you
-# can grab the REPL with Ctrl-C before it sleeps again — painless maintenance.
-# Normal timed wakes skip this and stay efficient.
-if machine.reset_cause() != machine.DEEPSLEEP_RESET:
+# ─────────────────────────────────────── wake handling
+# The wake button is an EXT0 source, so a press still shows up as a
+# DEEPSLEEP_RESET — only wake_reason() tells the two apart.  The constant is
+# named EXT0_WAKE on most builds and PIN_WAKE on some, hence the lookup.
+_EXT0 = getattr(machine, "EXT0_WAKE", getattr(machine, "PIN_WAKE", None))
+
+
+def woken_by_button():
+    if WAKE_PIN is None or _EXT0 is None:
+        return False
+    try:
+        return machine.reset_cause() == machine.DEEPSLEEP_RESET and \
+               machine.wake_reason() == _EXT0
+    except Exception:
+        return False
+
+
+def arm_wake_button():
+    """Let a press on WAKE_PIN (to GND) end the deep sleep early."""
+    if WAKE_PIN is None:
+        return
+    try:
+        import esp32
+        btn = Pin(WAKE_PIN, Pin.IN, Pin.PULL_UP)
+        esp32.wake_on_ext0(pin=btn, level=esp32.WAKEUP_ALL_LOW)
+    except Exception as e:
+        print("[track] wake button not armed:", e)
+
+
+# Pause before sleeping again on a manual reset / power-on, and on a button
+# press — both mean a human is present, so give them 5 s to grab the REPL with
+# Ctrl-C.  Timed wakes skip this and stay efficient.
+_button = woken_by_button()
+if _button:
+    print("[track] woken by button — 5 s maintenance window, Ctrl-C to stop ...")
+    time.sleep(5)
+elif machine.reset_cause() != machine.DEEPSLEEP_RESET:
     print("[track] manual boot — 5 s maintenance window, Ctrl-C to stop ...")
     time.sleep(5)
 
 run()
-print("[track] deep sleep for", INTERVAL_S, "s")
+arm_wake_button()
+print("[track] deep sleep for", INTERVAL_S, "s (press the wake button to cut it short)")
 machine.deepsleep(INTERVAL_S * 1000)

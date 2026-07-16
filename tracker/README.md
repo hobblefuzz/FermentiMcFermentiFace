@@ -18,7 +18,22 @@ Shows up in the dashboard under its own tab (`DEVICE_ID`, default `moromi`).
 
 ## Hardware
 
+**Recommended board: WEMOS LOLIN32 Lite.** It has a JST battery connector and a
+TP4054 charger onboard, and — unlike a plain dev board — a regulator that still
+works at LiPo voltage (see [Powering it from a battery](#powering-it-from-a-battery)).
+With it you need **no boost converter and no separate charge module**. It has no
+built-in battery divider, so keep the external one; GPIO4/32/33 are all broken out,
+so the default pin map fits as-is.
+
 - ESP32 + DS18B20 on `ONEWIRE_PIN` (GPIO 4) with a 4.7 kΩ pull-up to 3.3 V.
+- **Wake button** (optional): momentary switch from `WAKE_PIN` (GPIO 33) to GND —
+  ends the deep sleep immediately and takes a reading. Handy for debugging and for
+  an on-demand measurement. Must be an RTC-capable GPIO; avoid GPIO34–39, which are
+  input-only and have no internal pull-ups. Set `WAKE_PIN = None` to disable.
+  > If presses are missed or the node wakes spuriously, add an external 10 kΩ
+  > pull-up from the pin to 3.3 V — the internal one is not reliable on every build.
+- **Power switch** (recommended): the LOLIN32 Lite has none, so put a slide switch
+  in the battery line — otherwise the node keeps draining while unused.
 - **Keep the ESP32 outside the fridge**, run the DS18B20 on a cable through the
   door gasket — metal fridges block WiFi, and a cold LiPo loses capacity.
 - Optional battery sense: a divider (e.g. 2×220 kΩ) from LiPo+ to an **ADC1**
@@ -52,12 +67,13 @@ load on the 3.3 V rail drags it down further (because nothing is regulating).
 
 **Fixes**, best first:
 
-1. **Use a battery-oriented board** — Adafruit Feather ESP32, LOLIN D32, TinyPICO.
-   They have a regulator that works down to LiPo voltage, onboard charging, and
-   µA-range deep sleep. Solves regulator, charging and runtime in one go.
-2. **Boost converter** — feed the board's 5 V/Vin pin from a boost converter
-   (e.g. MT3608) so the LDO has headroom again. Works, but the boost + LDO chain
-   is lossy and the board's quiescent current (below) remains.
+1. **Use a battery-oriented board** — LOLIN32 Lite, LOLIN D32, Adafruit Feather
+   ESP32, TinyPICO. They have a regulator that works down to LiPo voltage and
+   onboard charging, which solves the regulator *and* the charging problem at once.
+   This is what the recommendation above is based on.
+2. **Boost converter** — feed a plain dev board's 5 V/Vin pin from a boost
+   converter (e.g. MT3608) so the LDO has headroom again. Works, but the
+   boost + LDO chain is lossy and the board's quiescent current (below) remains.
 
 > ⚠️ Don't power the DS18B20 directly from the LiPo to dodge this: its 1-Wire
 > pull-up would pull the data line to ~4.2 V, above the ESP32's 3.6 V GPIO limit.
@@ -76,17 +92,30 @@ The ESP32 *chip* sleeps at ~10 µA. The *board around it* does not:
 
 So a plain DevKit burns **milliamps while "asleep"** — that, not the 30-minute
 wakes, is what drains the cell. Removing the power LED is the cheapest big win;
-a low-power board is the real fix.
+a battery-oriented board is the real fix.
 
 ### Runtime estimate
 
-Wake cost itself is modest: ≈ 2–4 s at ~250 mA per wake. On a **low-power board**
-at a 30-min interval, a 2000 mAh cell lasts weeks to months (self-discharge often
-limits first). On a **standard DevKit**, expect days at best. Measure your board's
-sleep current before trusting any estimate.
+Wake cost itself is modest: ≈ 2–4 s at ~250 mA per wake, so at a 30-min interval
+the *wakes* are not the problem — the **sleep current is**, and that is a property
+of your board, not of this firmware.
+
+> ⚠️ **Measure it; don't trust datasheets here.** Spec sheets and many board pages
+> quote the ESP32 *chip*'s ~5–10 µA deep-sleep figure, which says nothing about the
+> regulator, USB-serial chip and LED sitting next to it. A plain DevKit measured in
+> the milliamps. The LOLIN32 Lite should be far better, but its actual sleep current
+> is not reliably documented anywhere we could find — so put a meter in the battery
+> line before promising yourself a runtime.
+
+With a genuinely low sleep current, a 2000 mAh cell lasts weeks to months at a
+30-min interval (self-discharge often limits first). With a DevKit, expect days.
 
 ## Testing
 
-To test without the 30-min wait, temporarily comment out the last
-`machine.deepsleep(...)` line so it runs, prints, and stops — then check the
-Moromi tab / `GET /api/track/latest` on the Pi.
+Press the **wake button** (GPIO 33 → GND): the node wakes immediately, takes a
+reading, and — because a press means a human is present — gives you the same 5 s
+window to grab the REPL with Ctrl-C as a manual reset does. That is usually all you
+need; check the tracker tab or `GET /api/track/latest` on the Pi.
+
+Without a wake button, temporarily comment out the last `machine.deepsleep(...)`
+line so it runs, prints, and stops.
