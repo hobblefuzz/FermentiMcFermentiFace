@@ -76,7 +76,7 @@ setpoints itself. A version handshake re-syncs the curve after edits. See
 
 | Part | Notes |
 |---|---|
-| **ESP32** dev board | The pin map in [`pins.py`](pins.py) targets a classic ESP32. Other WiFi variants (C3/C6) work but need a different pin map. **Not the ESP32-H2 — it has no WiFi.** |
+| **ESP32** dev board | The pin map in [`firmware/pins.py`](firmware/pins.py) targets a classic ESP32. Other WiFi variants (C3/C6) work but need a different pin map. **Not the ESP32-H2 — it has no WiFi.** |
 | **BME280** | Chamber air temperature + humidity (I²C). |
 | **DS18B20** | Waterproof core probe (1-Wire, 4.7 kΩ pull-up). |
 | **1602 LCD** | With PCF8574 I²C backpack. |
@@ -101,42 +101,47 @@ setpoints itself. A version handshake re-syncs the curve after edits. See
 
 | Path | What it is |
 |---|---|
-| `main.py` | Boot + main loop (50 ms tick). |
-| `config.py` | NVS-backed configuration (all setpoints, ×10 fixed-point temps). |
-| `controller.py` | The control logic: heating, cooling, humidity, idle, fail-safes. |
-| `sensor.py`, `core_sensor.py` | BME280 / DS18B20 with spike + plausibility filtering. |
-| `curve.py` | On-device profile curve stored in flash (autonomous execution). |
-| `netclient.py`, `wifi.py`, `timesync.py` | Pi polling, WiFi, SNTP clock. |
-| `gui.py`, `encoder.py` | 1602 menu system + rotary encoder. |
-| `fan.py`, `heater.py`, `pins.py` | Actuators and pin map. |
-| `pi/` | Raspberry Pi server + dashboard — see [`pi/README.md`](pi/README.md). |
+| `firmware/` | **ESP32 firmware** (MicroPython). Upload its *contents* to the device root. |
+| `firmware/main.py` | Boot + main loop (50 ms tick). |
+| `firmware/config.py` | NVS-backed configuration (all setpoints, ×10 fixed-point temps). |
+| `firmware/controller.py` | The control logic: heating, cooling, humidity, idle, fail-safes. |
+| `firmware/sensor.py`, `core_sensor.py` | BME280 / DS18B20 with spike + plausibility filtering. |
+| `firmware/curve.py` | On-device profile curve stored in flash (autonomous execution). |
+| `firmware/netclient.py`, `wifi.py`, `timesync.py` | Dashboard polling, WiFi, SNTP clock. |
+| `firmware/gui.py`, `encoder.py` | 1602 menu system + rotary encoder. |
+| `firmware/fan.py`, `heater.py`, `pins.py` | Actuators and pin map. |
+| `dashboard/` | Raspberry Pi server + web dashboard — see [`dashboard/README.md`](dashboard/README.md). |
 | `tracker/` | 🧪 **Beta** — optional battery sensor node, see [`tracker/README.md`](tracker/README.md). |
 | `PROTOCOL.md` | ESP32 ↔ Pi wire format. |
 
 ## Quick start
 
-### 1. ESP32
+### 1. ESP32 firmware
+
+Flash MicroPython to the board first, then upload the **contents of `firmware/`** to the
+device root — MicroPython runs `main.py` from there, and the imports are flat, so don't
+copy the folder itself:
 
 ```bash
-# Flash MicroPython to the board first, then upload the source:
-cp secrets_example.py secrets.py     # fill in WiFi + Pi address (optional)
-# upload *.py and lib/ with mpremote / Thonny / ampy
+cd firmware
+cp secrets_example.py secrets.py     # fill in WiFi + dashboard address (optional)
+mpremote cp -r . :                   # or use Thonny / ampy
 ```
 
 `secrets.py` is gitignored. **Without it the firmware still runs fully** — just locally,
 with WiFi off. Set your pins in `pins.py`, then configure everything from the LCD menu.
 
-### 2. Raspberry Pi (optional)
+### 2. Raspberry Pi dashboard (optional)
 
 ```bash
-cd pi
+cd dashboard
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python3 server.py                    # http://<pi-ip>:8080
 ```
 
 Then on the ESP32: **Global → WiFi = ON**, and **Ext ctrl = ON** to let the Pi drive the
-setpoints. Details incl. the systemd/sudo setup: [`pi/README.md`](pi/README.md).
+setpoints. Details incl. the systemd/sudo setup: [`dashboard/README.md`](dashboard/README.md).
 
 ### Running without WiFi
 

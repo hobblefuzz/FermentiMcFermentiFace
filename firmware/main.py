@@ -79,7 +79,7 @@ def boot():
     lcd = I2cLcd(i2c, pins.LCD_I2C_ADDR, pins.LCD_LINES, pins.LCD_COLS)
     lcd.clear()
     lcd.move_to(0, 0)
-    lcd.putstr("Fermenter v1.0  ")
+    lcd.putstr("FMCFF v1.0      ")
     lcd.move_to(0, 1)
     if not sensor.ok:
         lcd.putstr("Sensor missing! ")

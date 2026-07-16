@@ -1,13 +1,14 @@
 # Secrets — never commit WiFi credentials
+# (bare pattern, no leading slash → matches at ANY depth:
+#  firmware/secrets.py, tracker/secrets.py, ...)
 secrets.py
-pi/secrets.py
 
 # Python
 __pycache__/
 *.pyc
 
-# Runtime data (Pi side)
-pi/data/
+# Runtime data (dashboard side)
+dashboard/data/
 
 # Claude Code local settings
 .claude/settings.local.json

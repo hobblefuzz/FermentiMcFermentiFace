@@ -8,7 +8,7 @@ See [`../PROTOCOL.md`](../PROTOCOL.md) for the ESP32 ↔ Pi wire format.
 ## Setup
 
 ```bash
-cd pi
+cd dashboard
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -19,7 +19,7 @@ Then open `http://<pi-ip>:8080/` for the live status page.
 
 ## ESP32 side
 
-Copy `../secrets_example.py` to `../secrets.py`, set `WIFI_SSID`, `WIFI_PASS`,
+Copy `../firmware/secrets_example.py` to `../firmware/secrets.py`, set `WIFI_SSID`, `WIFI_PASS`,
 `PI_HOST` (this Pi's IP) and `PI_PORT` (8080). Flash the firmware, then in the
 1602 menu: **Global → WiFi = ON**, and **Ext ctrl = ON** to let the Pi drive
 the setpoints.
