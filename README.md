@@ -165,4 +165,4 @@ out (a standard dev board's regulator and quiescent current make it a poor batte
 
 ## License
 
-[MIT](LICENSE) © Rainer Liebersbach
+[MIT](LICENSE) © hobblefuzz
