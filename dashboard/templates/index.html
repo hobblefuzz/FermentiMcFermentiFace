@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,17 +14,17 @@
 
   <div class="layout">
     <nav class="sidenav" id="sidenav">
-      <button class="navbtn active" data-view="koji">🌾 Koji</button>
-      <button class="navbtn" data-view="moromi">🫙 Moromi</button>
+      <button class="navbtn active" data-view="fermenter">🌾 Fermenter</button>
+      <button class="navbtn" data-view="tracker">🫙 Tracker</button>
     </nav>
 
     <main>
-    <!-- ══ KOJI view ═══════════════════════════════════════ -->
-    <div id="view-koji" class="view">
+    <!-- ══ FERMENTER view ══════════════════════════════════ -->
+    <div id="view-fermenter" class="view">
 
       <section class="card">
         <div class="card-head">
-          <h2>Verlauf</h2>
+          <h2>History</h2>
           <div class="ranges" id="ranges">
             <button data-min="15">15 min</button>
             <button data-min="60" class="active">1 h</button>
@@ -37,16 +37,16 @@
           <div id="tip" class="tip" hidden></div>
         </div>
         <div class="legend">
-          <span class="lg core">Kern °C</span>
-          <span class="lg cham">Kammer °C</span>
-          <span class="lg rh">RH %</span>
-          <span class="lg heat">Heizung</span>
-          <span class="lg ft">Lüftung T</span>
-          <span class="lg frh">Lüftung RH</span>
-          <span class="lg fi">Lüftung Idle</span>
+          <label class="lg core"><input type="checkbox" data-series="core" checked> Core °C</label>
+          <label class="lg cham"><input type="checkbox" data-series="chamber" checked> Chamber °C</label>
+          <label class="lg rh"><input type="checkbox" data-series="rh" checked> RH %</label>
+          <span class="lg heat">Heater</span>
+          <span class="lg ft">Fan · temp</span>
+          <span class="lg frh">Fan · RH</span>
+          <span class="lg fi">Fan · idle</span>
         </div>
         <div class="scalectl">
-          <label><input type="checkbox" id="scaleManual"> Feste T-Skala</label>
+          <label><input type="checkbox" id="scaleManual"> Fixed T scale</label>
           <span id="scaleInputs" hidden>
             <input type="number" id="scaleTmin" step="1"> – <input type="number" id="scaleTmax" step="1"> °C
           </span>
@@ -54,34 +54,34 @@
         <div class="btns">
           <button id="logToggle">Logging …</button>
           <button id="csvExport">⬇ CSV</button>
-          <button id="plotReset" class="stop">Plot zurücksetzen</button>
+          <button id="plotReset" class="stop">Reset plot</button>
         </div>
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>Aktueller Stand</h2></div>
-        <div id="live" class="stats off">lade …</div>
+        <div class="card-head"><h2>Current status</h2></div>
+        <div id="live" class="stats off">loading …</div>
       </section>
 
       <section class="card">
         <div class="card-head">
           <div class="htitle">
-            <h2>Profil</h2>
-            <span class="help" data-tip="Leere Felder werden vom vorherigen Setpoint übernommen (Forward-Merge). Beim Start wird eine Kalender-Datei (.ics) mit den Setpoints erstellt.">?</span>
+            <h2>Profile</h2>
+            <span class="help" data-tip="Empty fields carry over from the previous setpoint (forward merge). Starting a profile also downloads a calendar file (.ics) with its steps.">?</span>
           </div>
           <div id="profState" class="pill">–</div>
         </div>
         <div class="proflib">
-          <select id="profSelect"><option value="">— gespeichertes Profil —</option></select>
-          <button id="loadProf">Laden</button>
-          <button id="saveAsProf">Speichern als…</button>
-          <button id="delProf" class="stop">Löschen</button>
+          <select id="profSelect"><option value="">— saved profile —</option></select>
+          <button id="loadProf">Load</button>
+          <button id="saveAsProf">Save as…</button>
+          <button id="delProf" class="stop">Delete</button>
         </div>
         <table id="profTable">
           <thead>
             <tr>
-              <th>Zeit (h)</th><th>Name</th>
-              <th>Ziel °C</th>
+              <th>Time (h)</th><th>Name</th>
+              <th>Target °C</th>
               <th>Cool on</th><th>Cool off</th>
               <th>RH high</th><th>RH low</th><th></th>
             </tr>
@@ -90,7 +90,7 @@
         </table>
         <div class="btns">
           <button id="addPoint">+ Setpoint</button>
-          <button id="saveProf">Speichern</button>
+          <button id="saveProf">Save</button>
           <button id="dlIcs">⬇ .ics</button>
           <button id="startProf" class="go">▶ Start</button>
           <button id="stopProf" class="stop">■ Stop</button>
@@ -101,29 +101,29 @@
         <div class="card-head">
           <div class="htitle">
             <h2>Settings</h2>
-            <span class="help" data-tip="Gelten, wenn kein Profil läuft — und als Basis fürs Profil.">?</span>
+            <span class="help" data-tip="Used when no profile is running — and as the base a profile builds on.">?</span>
           </div>
         </div>
         <div id="manualForm" class="mgroups"></div>
         <div class="btns">
-          <button id="saveManual">Speichern</button>
-          <button id="resetManual" class="stop">Werkseinstellungen</button>
+          <button id="saveManual">Save</button>
+          <button id="resetManual" class="stop">Factory defaults</button>
         </div>
       </section>
 
-    </div><!-- /view-koji -->
+    </div><!-- /view-fermenter -->
 
-    <!-- ══ MOROMI view ═════════════════════════════════════ -->
-    <div id="view-moromi" class="view" hidden>
+    <!-- ══ TRACKER view ════════════════════════════════════ -->
+    <div id="view-tracker" class="view" hidden>
 
       <section class="card">
         <div class="card-head">
-          <h2>Moromi — Verlauf</h2>
+          <h2>Tracker — History</h2>
           <div class="ranges" id="mRanges">
             <button data-min="360">6 h</button>
             <button data-min="1440" class="active">24 h</button>
-            <button data-min="10080">7 T</button>
-            <button data-min="43200">30 T</button>
+            <button data-min="10080">7 d</button>
+            <button data-min="43200">30 d</button>
           </div>
         </div>
         <div class="chart-wrap">
@@ -131,40 +131,40 @@
           <div id="mTip" class="tip" hidden></div>
         </div>
         <div class="legend">
-          <span class="lg core">Temperatur °C</span>
-          <span class="lg batt">Batterie V</span>
+          <label class="lg core"><input type="checkbox" data-mseries="temp" checked> Temperature °C</label>
+          <label class="lg batt"><input type="checkbox" data-mseries="batt" checked> Battery V</label>
         </div>
         <div class="btns">
           <button id="mCsv">⬇ CSV</button>
-          <button id="mPlotReset" class="stop">Plot zurücksetzen</button>
+          <button id="mPlotReset" class="stop">Reset plot</button>
         </div>
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>Aktueller Stand</h2></div>
-        <div id="mLive" class="stats off">lade …</div>
+        <div class="card-head"><h2>Current status</h2></div>
+        <div id="mLive" class="stats off">loading …</div>
       </section>
 
-    </div><!-- /view-moromi -->
+    </div><!-- /view-tracker -->
 
     <!-- ══ System (common to both) ═════════════════════════ -->
     <section class="card">
       <div class="card-head">
         <div class="htitle">
           <h2>System</h2>
-          <span class="help" data-tip="Vor dem Stromtrennen herunterfahren und warten, bis die grüne LED am Pi aus ist — schützt die SD-Karte vor Beschädigung.">?</span>
+          <span class="help" data-tip="Shut down before cutting power and wait until the Pi's green LED is off — this protects the SD card from corruption.">?</span>
         </div>
       </div>
       <div class="btns">
-        <button id="btnReboot">↻ Neustart</button>
-        <button id="btnShutdown" class="stop">⏻ Herunterfahren</button>
+        <button id="btnReboot">↻ Reboot</button>
+        <button id="btnShutdown" class="stop">⏻ Shut down</button>
       </div>
     </section>
 
     </main>
   </div>
 
-  <footer>ESP32 behält die Kontrolle &amp; alle Sicherheitsfunktionen — Dashboard steuert nur Sollwerte.</footer>
+  <footer>The ESP32 stays in charge and keeps all safety functions — the dashboard only sets setpoints.</footer>
 
   <script src="/static/app.js"></script>
 </body>

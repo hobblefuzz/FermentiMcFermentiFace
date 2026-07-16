@@ -3,20 +3,20 @@
 // Field order matches the profile table columns in index.html.
 // Heating is a single target per step; the deltas are global (in Settings).
 const TEMP_FIELDS = [
-  ["target", "Ziel"],
+  ["target", "Target"],
   ["temp_upper", "Cool on"], ["temp_lower", "Cool off"],
   ["rh_upper", "RH high"], ["rh_lower", "RH low"],
 ];
 
 // "Settings" grouped by function; third element = boolean toggle
 const MANUAL_GROUPS = [
-  ["Heizung", [["heat_enabled", "Ein", true], ["target", "Ziel-T"],
-    ["dt_lower", "Δ Kern"], ["dt_floor", "Δ Boden"], ["dt_ceil", "Δ Deckel"]]],
-  ["Kühlung", [["temp_enabled", "Ein", true], ["temp_upper", "Cool on"],
+  ["Heating", [["heat_enabled", "On", true], ["target", "Target T"],
+    ["dt_lower", "Δ core"], ["dt_floor", "Δ floor"], ["dt_ceil", "Δ ceiling"]]],
+  ["Cooling", [["temp_enabled", "On", true], ["temp_upper", "Cool on"],
     ["temp_lower", "Cool off"], ["temp_pwm_f1", "PWM 1"], ["temp_pwm_f2", "PWM 2"]]],
-  ["RH-Regelung", [["rh_enabled", "Ein", true], ["rh_upper", "RH high"],
+  ["Humidity", [["rh_enabled", "On", true], ["rh_upper", "RH high"],
     ["rh_lower", "RH low"], ["rh_pwm_f1", "PWM 1"], ["rh_pwm_f2", "PWM 2"]]],
-  ["Idle-Lüftung", [["idle_enabled", "Ein", true], ["idle_max_idle", "Idle time (min)"],
+  ["Idle ventilation", [["idle_enabled", "On", true], ["idle_max_idle", "Idle time (min)"],
     ["idle_pwm_f1", "PWM 1"], ["idle_pwm_f2", "PWM 2"]]],
 ];
 
@@ -40,7 +40,7 @@ function fmtDur(s) {
   return h ? `${h}h ${("0" + m).slice(-2)}m` : `${m}m ${("0" + (s % 60)).slice(-2)}s`;
 }
 function flash(btn) {
-  const t = btn.textContent; btn.textContent = "✓ gespeichert";
+  const t = btn.textContent; btn.textContent = "✓ saved";
   setTimeout(() => btn.textContent = t, 1200);
 }
 
@@ -53,21 +53,21 @@ async function pollStatus() {
     const d = await (await fetch("/api/status")).json();
     const t = d.telemetry || {}, p = d.profile || {};
     let h = "";
-    h += tile("Kern", fmt(t.core) + " °C");
-    h += tile("Kammer", fmt(t.chamber) + " °C");
-    h += tile("Luftfeuchte", fmt(t.rh) + " %");
-    h += tile("Heizung", t.heater ? "AN" : "aus", t.heater ? "hot" : "");
-    h += tile("Lüfter", fmt(t.fan));
-    h += tile("Modus", t.ext ? "extern" : "lokal");
-    h += tile("Profil", p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt", p.running ? "run" : "");
+    h += tile("Core", fmt(t.core) + " °C");
+    h += tile("Chamber", fmt(t.chamber) + " °C");
+    h += tile("Humidity", fmt(t.rh) + " %");
+    h += tile("Heater", t.heater ? "ON" : "off", t.heater ? "hot" : "");
+    h += tile("Fan", fmt(t.fan));
+    h += tile("Mode", t.ext ? "external" : "local");
+    h += tile("Profile", p.running ? ((p.step || "running") + " · " + fmtDur(p.elapsed)) : "stopped", p.running ? "run" : "");
     if (t.chamber_alarm) h += tile("Alarm", "OVERTEMP", "alarm");
-    if (t.core_fault) h += tile("Alarm", "Kern-Sensor", "alarm");
+    if (t.core_fault) h += tile("Alarm", "Core sensor", "alarm");
     live.className = "stats";
     live.innerHTML = h;
-    profState.textContent = p.running ? ((p.step || "läuft") + " · " + fmtDur(p.elapsed)) : "gestoppt";
+    profState.textContent = p.running ? ((p.step || "running") + " · " + fmtDur(p.elapsed)) : "stopped";
     profState.className = "pill" + (p.running ? " run" : "");
     const lg = $("logToggle");
-    if (lg) { lg.textContent = "Logging: " + (d.logging ? "AN" : "AUS"); lg.className = d.logging ? "go" : ""; }
+    if (lg) { lg.textContent = "Logging: " + (d.logging ? "ON" : "OFF"); lg.className = d.logging ? "go" : ""; }
   } catch (e) {
     live.className = "stats off";
     live.innerHTML = '<div class="stat"><div class="val">Server offline</div></div>';
@@ -79,10 +79,14 @@ let rangeMin = 60;
 let scaleMode = "auto", scaleTmin = 20, scaleTmax = 40;   // temperature y-axis
 let lastRows = [], lastEvents = [], plot = null;  // last data + scale info for hover
 const PLAUSIBLE = v => v != null && v > -20 && v < 80;   // reject sensor glitches
+// Which curves are drawn (toggled from the legend, persisted per browser).
+// Activity bands (heater / fan reasons) are intentionally always shown.
+let show  = { core: true, chamber: true, rh: true };
+let mShow = { temp: true, batt: true };
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
-let activeView = "koji";
-let mRangeMin = 1440, mCW = 900, mCH = 300;        // Moromi chart
-let mRows = [], mPlot = null;                        // last Moromi data + scale for hover
+let activeView = "fermenter";
+let mRangeMin = 1440, mCW = 900, mCH = 300;        // tracker chart
+let mRows = [], mPlot = null;                        // last tracker data + scale for hover
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
   CW = canvas.clientWidth || 900;
@@ -93,7 +97,7 @@ function fitCanvas() {
 }
 
 async function pollLog() {
-  if (activeView !== "koji") return;
+  if (activeView !== "fermenter") return;
   try {
     const since = Date.now() / 1000 - rangeMin * 60;
     const [rows, events] = await Promise.all([
@@ -115,7 +119,7 @@ function drawChart(rows) {
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
   if (!rows.length) {
     ctx.fillStyle = css("--dim"); ctx.textAlign = "left";
-    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); plot = null; return;
+    ctx.fillText("no data in this range", x0 + 12, y1 + 20); plot = null; return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
   let tmin, tmax;
@@ -123,7 +127,10 @@ function drawChart(rows) {
     tmin = scaleTmin; tmax = scaleTmax; if (tmax <= tmin) tmax = tmin + 1;
   } else {
     const temps = [];
-    rows.forEach(r => { if (PLAUSIBLE(r.core)) temps.push(r.core); if (PLAUSIBLE(r.chamber)) temps.push(r.chamber); });
+    rows.forEach(r => {
+      if (show.core && PLAUSIBLE(r.core)) temps.push(r.core);
+      if (show.chamber && PLAUSIBLE(r.chamber)) temps.push(r.chamber);
+    });
     if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 40; }
     tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 4) tmax = tmin + 4;
   }
@@ -137,8 +144,10 @@ function drawChart(rows) {
   for (let i = 0; i <= steps; i++) {
     const v = tmin + (tmax - tmin) * i / steps, y = syT(v);
     ctx.strokeStyle = "#1c232b"; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
-    ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y);
-    ctx.textAlign = "left"; ctx.fillStyle = css("--rh"); ctx.fillText((100 * i / steps).toFixed(0), x1 + 6, syR(100 * i / steps));
+    if (mShow.temp) { ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y); }
+    if (show.rh) {
+      ctx.textAlign = "left"; ctx.fillStyle = css("--rh"); ctx.fillText((100 * i / steps).toFixed(0), x1 + 6, syR(100 * i / steps));
+    }
   }
   // Activity bands below the plot: heater + the three fan reasons.
   const bandDefs = [
@@ -181,9 +190,9 @@ function drawChart(rows) {
   };
   ctx.save();                                    // clip so glitches don't spike out
   ctx.beginPath(); ctx.rect(x0, y1, x1 - x0, y0 - y1); ctx.clip();
-  series("core", syT, css("--core"));
-  series("chamber", syT, css("--cham"));
-  series("rh", syR, css("--rh"), [5, 4]);
+  if (show.core)    series("core", syT, css("--core"));
+  if (show.chamber) series("chamber", syT, css("--cham"));
+  if (show.rh)      series("rh", syR, css("--rh"), [5, 4]);
   ctx.restore();
 
   // profile step markers (vertical line + name)
@@ -229,9 +238,9 @@ function drawHover(row) {
     ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, sy(v), 3.4, 0, 6.29); ctx.fill();
     ctx.strokeStyle = "#0c0f13"; ctx.lineWidth = 1.2; ctx.stroke();
   };
-  dot(row.core, plot.syT, css("--core"));
-  dot(row.chamber, plot.syT, css("--cham"));
-  dot(row.rh, plot.syR, css("--rh"));
+  if (show.core)    dot(row.core, plot.syT, css("--core"));
+  if (show.chamber) dot(row.chamber, plot.syT, css("--cham"));
+  if (show.rh)      dot(row.rh, plot.syR, css("--rh"));
   ctx.restore();
 }
 
@@ -250,11 +259,11 @@ function onHover(e) {
   drawHover(row);
   const d = new Date(row.ts * 1000);
   const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
-  tip.innerHTML =
-    `<div class="t">${clock}</div>` +
-    `<div class="trow"><span>Kern</span><b class="core">${fmt(row.core)} °C</b></div>` +
-    `<div class="trow"><span>Kammer</span><b class="cham">${fmt(row.chamber)} °C</b></div>` +
-    `<div class="trow"><span>RH</span><b class="rh">${fmt(row.rh)} %</b></div>`;
+  let th = `<div class="t">${clock}</div>`;
+  if (show.core)    th += `<div class="trow"><span>Core</span><b class="core">${fmt(row.core)} °C</b></div>`;
+  if (show.chamber) th += `<div class="trow"><span>Chamber</span><b class="cham">${fmt(row.chamber)} °C</b></div>`;
+  if (show.rh)      th += `<div class="trow"><span>RH</span><b class="rh">${fmt(row.rh)} %</b></div>`;
+  tip.innerHTML = th;
   tip.hidden = false;
   const cssX = plot.sx(row.ts) * (rect.width / CW);
   tip.style.left = Math.max(60, Math.min(rect.width - 60, cssX)) + "px";
@@ -288,14 +297,14 @@ function drawMoromi(rows) {
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
   if (!rows.length) {
     ctx.fillStyle = css("--dim"); ctx.textAlign = "left";
-    ctx.fillText("keine Daten im Zeitraum", x0 + 12, y1 + 20); mPlot = null; return;
+    ctx.fillText("no data in this range", x0 + 12, y1 + 20); mPlot = null; return;
   }
   const t0 = rows[0].ts, t1 = rows[rows.length - 1].ts, tSpan = Math.max(1, t1 - t0);
-  const temps = rows.filter(r => PLAUSIBLE(r.temp)).map(r => r.temp);
+  const temps = mShow.temp ? rows.filter(r => PLAUSIBLE(r.temp)).map(r => r.temp) : [];
   let tmin, tmax;
   if (temps.length) { tmin = Math.min(...temps); tmax = Math.max(...temps); } else { tmin = 0; tmax = 30; }
   tmin = Math.floor(tmin - 1); tmax = Math.ceil(tmax + 1); if (tmax - tmin < 3) tmax = tmin + 3;
-  const hasBatt = rows.some(r => r.batt != null);
+  const hasBatt = mShow.batt && rows.some(r => r.batt != null);
   const bmin = 3.0, bmax = 4.3;
   const sx = ts => x0 + (ts - t0) / tSpan * (x1 - x0);
   const syT = v => y0 - (v - tmin) / (tmax - tmin) * (y0 - y1);
@@ -305,7 +314,7 @@ function drawMoromi(rows) {
   for (let i = 0; i <= steps; i++) {
     const v = tmin + (tmax - tmin) * i / steps, y = syT(v);
     ctx.strokeStyle = "#1c232b"; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
-    ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y);
+    if (mShow.temp) { ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y); }
     if (hasBatt) {
       const bv = bmin + (bmax - bmin) * i / steps;
       ctx.textAlign = "left"; ctx.fillStyle = css("--batt"); ctx.fillText(bv.toFixed(1), x1 + 6, syB(bv));
@@ -328,8 +337,8 @@ function drawMoromi(rows) {
   };
   ctx.save();                                    // clip so glitches don't spike out
   ctx.beginPath(); ctx.rect(x0, y1, x1 - x0, y0 - y1); ctx.clip();
-  series("temp", syT, css("--core"));
-  if (hasBatt) series("batt", syB, css("--batt"), [5, 4]);
+  if (mShow.temp) series("temp", syT, css("--core"));
+  if (hasBatt)    series("batt", syB, css("--batt"), [5, 4]);
 
   // dots per sample (so even a single/sparse reading is visible)
   if (rows.length <= 300) {
@@ -340,8 +349,8 @@ function drawMoromi(rows) {
         ctx.beginPath(); ctx.arc(sx(r.ts), sy(v), 2.4, 0, 6.29); ctx.fill();
       });
     };
-    dots("temp", syT, css("--core"));
-    if (hasBatt) dots("batt", syB, css("--batt"));
+    if (mShow.temp) dots("temp", syT, css("--core"));
+    if (hasBatt)    dots("batt", syB, css("--batt"));
   }
   ctx.restore();
 
@@ -373,7 +382,7 @@ function drawMoromiHover(row) {
     ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, sy(v), 3.4, 0, 6.29); ctx.fill();
     ctx.strokeStyle = "#0c0f13"; ctx.lineWidth = 1.2; ctx.stroke();
   };
-  dot(row.temp, mPlot.syT, css("--core"));
+  if (mShow.temp)    dot(row.temp, mPlot.syT, css("--core"));
   if (mPlot.hasBatt) dot(row.batt, mPlot.syB, css("--batt"));
   ctx.restore();
 }
@@ -391,10 +400,11 @@ function mOnHover(e) {
   drawMoromiHover(row);
   const d = new Date(row.ts * 1000);
   const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
-  let html = `<div class="t">${clock}</div>` +
-    `<div class="trow"><span>Temp</span><b class="core">${fmt(row.temp)} °C</b></div>`;
-  if (row.batt != null)
-    html += `<div class="trow"><span>Batterie</span><b class="batt">${fmt(row.batt)} V</b></div>`;
+  let html = `<div class="t">${clock}</div>`;
+  if (mShow.temp)
+    html += `<div class="trow"><span>Temp</span><b class="core">${fmt(row.temp)} °C</b></div>`;
+  if (mShow.batt && row.batt != null)
+    html += `<div class="trow"><span>Battery</span><b class="batt">${fmt(row.batt)} V</b></div>`;
   mTip.innerHTML = html;
   mTip.hidden = false;
   const cssX = mPlot.sx(row.ts) * (rect.width / mCW);
@@ -404,7 +414,7 @@ mCanvas.addEventListener("mousemove", mOnHover);
 mCanvas.addEventListener("mouseleave", mHideTip);
 
 async function pollMoromi() {
-  if (activeView !== "moromi") return;
+  if (activeView !== "tracker") return;
   try {
     const since = Date.now() / 1000 - mRangeMin * 60;
     const [rows, latest] = await Promise.all([
@@ -416,15 +426,15 @@ async function pollMoromi() {
     const m = latest.moromi;
     let h = "";
     if (m && m.temp != null) {
-      h += tile("Temperatur", m.temp.toFixed(1) + " °C");
-      if (m.batt != null) h += tile("Batterie", m.batt.toFixed(2) + " V");
+      h += tile("Temperature", m.temp.toFixed(1) + " °C");
+      if (m.batt != null) h += tile("Battery", m.batt.toFixed(2) + " V");
       const d = new Date(m.ts * 1000);
       const hhmm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
       const sameDay = d.toDateString() === new Date().toDateString();
-      h += tile("Letzte Messung", sameDay ? hhmm
+      h += tile("Last reading", sameDay ? hhmm
         : ("0" + d.getDate()).slice(-2) + "." + ("0" + (d.getMonth() + 1)).slice(-2) + ". " + hhmm);
     } else {
-      h += tile("Status", "keine Daten");
+      h += tile("Status", "no data");
     }
     mLive.className = "stats"; mLive.innerHTML = h;
   } catch (e) {
@@ -437,7 +447,7 @@ function showView(name) {
   activeView = name;
   document.querySelectorAll(".view").forEach(v => { v.hidden = (v.id !== "view-" + name); });
   document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.view === name));
-  if (name === "koji") { fitCanvas(); pollLog(); pollStatus(); }
+  if (name === "fermenter") { fitCanvas(); pollLog(); pollStatus(); }
   else { fitMoromi(); pollMoromi(); }
 }
 
@@ -494,20 +504,20 @@ const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replac
 function stepDesc(p) {
   const sp = p.setpoints || {}, parts = [];
   if (sp.target != null)
-    parts.push(`Ziel ${sp.target} C`);
-  if (sp.temp_upper != null) parts.push(`Lüften ab ${sp.temp_upper} C`);
+    parts.push(`target ${sp.target} C`);
+  if (sp.temp_upper != null) parts.push(`fan above ${sp.temp_upper} C`);
   if (sp.rh_lower != null || sp.rh_upper != null)
     parts.push(`RH ${sp.rh_lower ?? "?"}-${sp.rh_upper ?? "?"} %`);
-  return "Reis umrühren / Feuchte verteilen." + (parts.length ? " Sollwerte: " + parts.join(", ") : "");
+  return "Stir the substrate / redistribute moisture." + (parts.length ? " Setpoints: " + parts.join(", ") : "");
 }
 
 function buildICS(points, startEpoch) {
   let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
-            "PRODID:-//FermentiMcFermentiFace//Koji//DE\r\nCALSCALE:GREGORIAN\r\n";
+            "PRODID:-//FermentiMcFermentiFace//Fermenter//EN\r\nCALSCALE:GREGORIAN\r\n";
   points.forEach((p, i) => {
-    const title = p.name || ("Schritt " + (i + 1));
+    const title = p.name || ("Step " + (i + 1));
     ics += "BEGIN:VEVENT\r\n" +
-      "UID:koji-" + startEpoch + "-" + i + "@fermentimcfermentiface\r\n" +
+      "UID:fmcff-" + startEpoch + "-" + i + "@fermentimcfermentiface\r\n" +
       "DTSTAMP:" + icsTime(startEpoch) + "\r\n" +
       "DTSTART:" + icsTime(startEpoch + (p.t || 0)) + "\r\n" +
       "DURATION:PT15M\r\n" +
@@ -558,7 +568,7 @@ async function saveManual() {
 $("addPoint").onclick = () => profBody.appendChild(pointRow());
 $("saveProf").onclick = saveProfile;
 $("startProf").onclick = async () => {
-  if (!confirm("Profil jetzt starten? Es wird ab sofort abgefahren und eine .ics-Datei heruntergeladen.")) return;
+  if (!confirm("Start the profile now? It begins running immediately and an .ics file is downloaded.")) return;
   await saveProfile();
   const d = await (await fetch("/api/profile/start", { method: "POST" })).json();
   pollStatus();
@@ -566,7 +576,7 @@ $("startProf").onclick = async () => {
   if (d.points && d.points.length) download("koji-profil.ics", buildICS(d.points, startEpoch), "text/calendar");
 };
 $("stopProf").onclick = async () => {
-  if (!confirm("Profil wirklich stoppen?")) return;
+  if (!confirm("Really stop the profile?")) return;
   await fetch("/api/profile/stop", { method: "POST" });
   pollStatus();
 };
@@ -579,7 +589,7 @@ $("dlIcs").onclick = async () => {
 };
 $("saveManual").onclick = saveManual;
 if ($("resetManual")) $("resetManual").onclick = async () => {
-  if (!confirm("Settings auf Werkseinstellungen zurücksetzen?")) return;
+  if (!confirm("Reset settings to factory defaults?")) return;
   manualForm(await (await fetch("/api/manual/reset", { method: "POST" })).json());
   flash($("resetManual"));
 };
@@ -589,7 +599,7 @@ async function loadProfiles() {
   const sel = $("profSelect"); if (!sel) return;
   const names = await (await fetch("/api/profiles")).json();
   const cur = sel.value;
-  sel.innerHTML = '<option value="">— gespeichertes Profil —</option>' +
+  sel.innerHTML = '<option value="">— saved profile —</option>' +
     names.map(n => `<option>${n}</option>`).join("");
   if (names.includes(cur)) sel.value = cur;
 }
@@ -601,7 +611,7 @@ if ($("loadProf")) $("loadProf").onclick = async () => {
   if (!profBody.children.length) profBody.appendChild(pointRow());
 };
 if ($("saveAsProf")) $("saveAsProf").onclick = async () => {
-  const name = (prompt("Profil speichern als:") || "").trim(); if (!name) return;
+  const name = (prompt("Save profile as:") || "").trim(); if (!name) return;
   await fetch("/api/profiles/" + encodeURIComponent(name), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ points: collectProfile() }),
@@ -610,7 +620,7 @@ if ($("saveAsProf")) $("saveAsProf").onclick = async () => {
 };
 if ($("delProf")) $("delProf").onclick = async () => {
   const name = $("profSelect").value;
-  if (!name || !confirm("Profil löschen: " + name + " ?")) return;
+  if (!name || !confirm("Delete profile: " + name + " ?")) return;
   await fetch("/api/profiles/" + encodeURIComponent(name), { method: "DELETE" });
   await loadProfiles();
 };
@@ -618,7 +628,7 @@ if ($("delProf")) $("delProf").onclick = async () => {
 $("logToggle").onclick = async () => { await fetch("/api/logging/toggle", { method: "POST" }); pollStatus(); };
 $("csvExport").onclick = () => { location.href = "/api/export.csv"; };
 $("plotReset").onclick = async () => {
-  if (!confirm("Alle geloggten Daten unwiderruflich löschen (Plot + CSV)?")) return;
+  if (!confirm("Permanently delete all logged data (plot + CSV)?")) return;
   await fetch("/api/log/reset", { method: "POST" });
   pollLog();
 };
@@ -629,15 +639,15 @@ function powerScreen(title, note) {
     `background:#0f1216;min-height:100vh"><h1>${title}</h1><p>${note}</p></div>`;
 }
 $("btnShutdown").onclick = async () => {
-  if (!confirm("Pi wirklich herunterfahren?")) return;
+  if (!confirm("Really shut the Pi down?")) return;
   await fetch("/api/power/shutdown", { method: "POST" });
-  powerScreen("⏻ Pi fährt herunter …",
-    "Warte, bis die grüne LED am Pi aus ist — dann kannst du den Strom trennen.");
+  powerScreen("⏻ Pi is shutting down …",
+    "Wait until the green LED on the Pi is off — then it is safe to cut the power.");
 };
 $("btnReboot").onclick = async () => {
-  if (!confirm("Pi neu starten?")) return;
+  if (!confirm("Reboot the Pi?")) return;
   await fetch("/api/power/reboot", { method: "POST" });
-  powerScreen("↻ Pi startet neu …", "Die Seite ist in ~30 s wieder erreichbar. Lade sie dann neu.");
+  powerScreen("↻ Pi is rebooting …", "The page will be reachable again in ~30 s. Reload it then.");
 };
 
 ranges.querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -650,7 +660,7 @@ $("mRanges").querySelectorAll("button").forEach(b => b.onclick = () => {
 });
 $("mCsv").onclick = () => { location.href = "/api/track/export.csv?device=moromi"; };
 $("mPlotReset").onclick = async () => {
-  if (!confirm("Alle Moromi-Messdaten unwiderruflich löschen (Plot + CSV)?")) return;
+  if (!confirm("Permanently delete all tracker readings (plot + CSV)?")) return;
   await fetch("/api/track/reset?device=moromi", { method: "POST" });
   pollMoromi();
 };
@@ -677,8 +687,31 @@ if ($("scaleManual")) {
   syncScaleUI();
 }
 
+// series visibility (legend checkboxes), persisted in the browser
+const SHOW_KEY = "fmcff_series";
+try {
+  const v = JSON.parse(localStorage.getItem(SHOW_KEY) || "null");
+  if (v) { Object.assign(show, v.show || {}); Object.assign(mShow, v.mShow || {}); }
+} catch (e) { /* ignore */ }
+function saveShow() { localStorage.setItem(SHOW_KEY, JSON.stringify({ show, mShow })); }
+
+function wireSeries(attr, state, redraw) {
+  document.querySelectorAll(`[${attr}]`).forEach(cb => {
+    const key = cb.getAttribute(attr);
+    cb.checked = state[key] !== false;
+    cb.closest("label").classList.toggle("off", !cb.checked);
+    cb.onchange = () => {
+      state[key] = cb.checked;
+      cb.closest("label").classList.toggle("off", !cb.checked);
+      saveShow(); redraw();
+    };
+  });
+}
+wireSeries("data-series",  show,  () => drawChart(lastRows));
+wireSeries("data-mseries", mShow, () => drawMoromi(mRows));
+
 window.addEventListener("resize", () => {
-  if (activeView === "koji") { fitCanvas(); pollLog(); }
+  if (activeView === "fermenter") { fitCanvas(); pollLog(); }
   else { fitMoromi(); pollMoromi(); }
 });
 
