@@ -11,6 +11,8 @@ cut without losing the run. The dashboard is a convenience layer, never a depend
 
 *(The dashboard answers to the name **FermentiMcFermentiFace**.)*
 
+![Inside the fermenter: styrofoam box with heating mat, intake/exhaust fans and sensors](docs/img/box_offen.jpg)
+
 ## Features
 
 - **Target-temperature control** with a latching chamber overshoot brake — bounded overshoot
@@ -36,6 +38,9 @@ Heating is driven by one **target** plus **three deltas**, all on measurable val
 | `dt_lower` | core    | Heat while `core ≤ target − dt_lower`; stop at `target`.              |
 | `dt_floor` | chamber | Also heat if the air drops below `target − dt_floor` (undershoot).   |
 | `dt_ceil`  | chamber | **Brake:** block heating once air ≥ `target + dt_ceil`, release at `target`. |
+
+![Temperature chart showing the core overshooting the target by several degrees](docs/img/ueberschwinger.png)
+*The problem the brake solves: on a setpoint step, the core shoots several degrees past the target.*
 
 The brake is the interesting part. The chamber air heats quickly, the substrate lags far
 behind (~10 min, more with a thicker layer). Plain bang-bang control therefore runs the
@@ -65,6 +70,12 @@ flowchart LR
     SRV --- WEB
     FLASH -.->|Pi unreachable →<br/>run curve locally| CTRL
 ```
+
+![Web dashboard with temperature and humidity charts plus heater/fan activity bands](docs/img/dashboard_chart.png)
+*The dashboard: core and chamber temperature, humidity, and activity bands for heater and fans.*
+
+![The 1602 LCD main menu, driven by the rotary encoder](docs/img/hauptmenue.jpg)
+*Everything is configurable locally on the 1602 LCD — no network required.*
 
 The ESP32 is the **client**: it polls the Pi, sends telemetry and receives setpoints. When a
 profile starts, the Pi pushes the curve and its absolute start time into the ESP32's flash.
