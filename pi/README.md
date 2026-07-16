@@ -1,4 +1,4 @@
-# Fermenter — Raspberry Pi Server (Phase 1)
+# Fermenter — Raspberry Pi Server
 
 Web/control server for the ESP32 fermenter. Receives telemetry, logs it, and
 serves the current setpoints (manual or from a running profile).
@@ -61,7 +61,13 @@ sudo visudo -c                 # syntax check ("... parsed OK")
 Replace `pi` with your username if different, and adjust the paths if `which`
 shows something else. After that, restart the service and the buttons work.
 
-## Roadmap (Phase 2)
+## Autonomy
 
-- Rich web UI: live charts (telemetry history) + drag/add profile points
-- Move the schedule onto the ESP32 + DS3231 RTC for full autonomy across reboots
+The Pi is **not** a dependency. When a profile starts, the server pushes the curve
+and its absolute start time into the ESP32's flash; the ESP32 keeps running the
+schedule on its own if the Pi becomes unreachable, and resumes at the correct step
+after a reboot or power cut. While the Pi is reachable it is authoritative — a
+`prof_ver` handshake re-sends the curve after edits. Both sides persist their run
+state, so a server restart picks the profile back up instead of losing it.
+
+See [`../PROTOCOL.md`](../PROTOCOL.md) and the root [`README.md`](../README.md).

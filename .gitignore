@@ -17,3 +17,6 @@ pi/data/
 
 # Blog images (large binaries)
 images/
+
+# Blog draft — stays local, not part of the published project
+blogpost_fermenter_koji.md
