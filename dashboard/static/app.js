@@ -27,6 +27,8 @@ const mCanvas = $("mChart"), mLive = $("mLive"), mTip = $("mTip");
 
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmt = v => (v === null || v === undefined) ? "--" : v;
+// numeric readings: always 2 decimals, in the plot tooltips AND the status tiles
+const fmt2 = v => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(2);
 
 // Parse the fan status string ("R--", "-T-", "RTI", "EMG", "OFF", …) into flags.
 function fanFlags(s) {
@@ -53,9 +55,9 @@ async function pollStatus() {
     const d = await (await fetch("/api/status")).json();
     const t = d.telemetry || {}, p = d.profile || {};
     let h = "";
-    h += tile("Core", fmt(t.core) + " °C");
-    h += tile("Chamber", fmt(t.chamber) + " °C");
-    h += tile("Humidity", fmt(t.rh) + " %");
+    h += tile("Core", fmt2(t.core) + " °C");
+    h += tile("Chamber", fmt2(t.chamber) + " °C");
+    h += tile("Humidity", fmt2(t.rh) + " %");
     h += tile("Heater", t.heater ? "ON" : "off", t.heater ? "hot" : "");
     h += tile("Fan", fmt(t.fan));
     h += tile("Mode", t.ext ? "external" : "local");
@@ -260,9 +262,9 @@ function onHover(e) {
   const d = new Date(row.ts * 1000);
   const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
   let th = `<div class="t">${clock}</div>`;
-  if (show.core)    th += `<div class="trow"><span>Core</span><b class="core">${fmt(row.core)} °C</b></div>`;
-  if (show.chamber) th += `<div class="trow"><span>Chamber</span><b class="cham">${fmt(row.chamber)} °C</b></div>`;
-  if (show.rh)      th += `<div class="trow"><span>RH</span><b class="rh">${fmt(row.rh)} %</b></div>`;
+  if (show.core)    th += `<div class="trow"><span>Core</span><b class="core">${fmt2(row.core)} °C</b></div>`;
+  if (show.chamber) th += `<div class="trow"><span>Chamber</span><b class="cham">${fmt2(row.chamber)} °C</b></div>`;
+  if (show.rh)      th += `<div class="trow"><span>RH</span><b class="rh">${fmt2(row.rh)} %</b></div>`;
   tip.innerHTML = th;
   tip.hidden = false;
   const cssX = plot.sx(row.ts) * (rect.width / CW);
@@ -402,9 +404,9 @@ function mOnHover(e) {
   const clock = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => ("0" + n).slice(-2)).join(":");
   let html = `<div class="t">${clock}</div>`;
   if (mShow.temp)
-    html += `<div class="trow"><span>Temp</span><b class="core">${fmt(row.temp)} °C</b></div>`;
+    html += `<div class="trow"><span>Temp</span><b class="core">${fmt2(row.temp)} °C</b></div>`;
   if (mShow.batt && row.batt != null)
-    html += `<div class="trow"><span>Battery</span><b class="batt">${fmt(row.batt)} V</b></div>`;
+    html += `<div class="trow"><span>Battery</span><b class="batt">${fmt2(row.batt)} V</b></div>`;
   mTip.innerHTML = html;
   mTip.hidden = false;
   const cssX = mPlot.sx(row.ts) * (rect.width / mCW);
@@ -425,9 +427,14 @@ async function pollMoromi() {
     drawMoromi(rows);
     const m = latest.moromi;
     let h = "";
-    if (m && m.temp != null) {
-      h += tile("Temperature", m.temp.toFixed(1) + " °C");
-      if (m.batt != null) h += tile("Battery", m.batt.toFixed(2) + " V");
+    if (m && m.ts) {
+      // Show the reading even when the sensor failed: temperature comes through
+      // as null (loose plug / out-of-range / all-zeros glitch), but battery and
+      // time are still useful — so flag the temp and keep the rest visible.
+      h += (m.temp != null)
+        ? tile("Temperature", fmt2(m.temp) + " °C")
+        : tile("Temperature", "no reading", "alarm");
+      if (m.batt != null) h += tile("Battery", fmt2(m.batt) + " V");
       const d = new Date(m.ts * 1000);
       const hhmm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
       const sameDay = d.toDateString() === new Date().toDateString();
