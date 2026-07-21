@@ -146,7 +146,11 @@ function drawChart(rows) {
   for (let i = 0; i <= steps; i++) {
     const v = tmin + (tmax - tmin) * i / steps, y = syT(v);
     ctx.strokeStyle = "#1c232b"; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
-    if (mShow.temp) { ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y); }
+    // One decimal: with a narrow scale the steps are well under 1 °C, so whole
+    // numbers would print duplicates (…10, 9, 9, 8…) down the axis.
+    if (show.core || show.chamber) {
+      ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(1), x0 - 6, y);
+    }
     if (show.rh) {
       ctx.textAlign = "left"; ctx.fillStyle = css("--rh"); ctx.fillText((100 * i / steps).toFixed(0), x1 + 6, syR(100 * i / steps));
     }
@@ -316,7 +320,9 @@ function drawMoromi(rows) {
   for (let i = 0; i <= steps; i++) {
     const v = tmin + (tmax - tmin) * i / steps, y = syT(v);
     ctx.strokeStyle = "#1c232b"; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
-    if (mShow.temp) { ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(0), x0 - 6, y); }
+    if (mShow.temp) {
+      ctx.textAlign = "right"; ctx.fillStyle = css("--core"); ctx.fillText(v.toFixed(1), x0 - 6, y);
+    }
     if (hasBatt) {
       const bv = bmin + (bmax - bmin) * i / steps;
       ctx.textAlign = "left"; ctx.fillStyle = css("--batt"); ctx.fillText(bv.toFixed(1), x1 + 6, syB(bv));
