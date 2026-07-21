@@ -1,6 +1,6 @@
 # Koji Fermenter — ESP32 temperature & humidity controller
 
-A DIY fermentation chamber controller for fermentation projects, specialized in **Koji** (*Aspergillus oryzae*)for things like miso, soy sauce or sake: an **ESP32** running MicroPython holds the substrate at a target temperature and
+A DIY fermentation chamber controller specialized in the production of **Koji** (*Aspergillus oryzae*)for things like miso, soy sauce or sake: an **ESP32** running MicroPython holds the substrate at a target temperature and
 humidity for days, and an optional **Raspberry Pi** adds a web dashboard with charts and a
 multi-step profile editor.
 
