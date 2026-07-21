@@ -355,6 +355,25 @@ def track_latest():
     return jsonify(last_tracker)
 
 
+@app.route("/api/track/devices")
+def track_devices():
+    """Every tracker id we know of, so the dashboard can offer a picker.
+
+    Read from the DB (survives a restart) and unioned with the in-memory
+    last_tracker, so a node that just reported shows up right away.  Trackers
+    register themselves simply by POSTing — nothing to configure here.
+    """
+    devs = set(last_tracker)
+    try:
+        c = _db()
+        devs |= {r[0] for r in c.execute(
+            "SELECT DISTINCT device FROM tracker WHERE device IS NOT NULL")}
+        c.close()
+    except Exception as e:
+        print("[db] devices error:", e)
+    return jsonify(sorted(devs))
+
+
 @app.route("/api/track/log")
 def track_log():
     dev = request.args.get("device", "moromi")

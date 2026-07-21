@@ -88,6 +88,9 @@ let mShow = { temp: true, batt: true };
 let CW = 900, CH = 360;          // logical (CSS-pixel) chart size
 let activeView = "fermenter";
 let mRangeMin = 1440, mCW = 900, mCH = 300;        // tracker chart
+// Which tracker the tab shows. Nodes register themselves by POSTing, so running
+// a second one in parallel needs no config here — just pick it from the list.
+let mDevice = localStorage.getItem("fmcff_tracker") || "moromi";
 let mRows = [], mPlot = null;                        // last tracker data + scale for hover
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -426,12 +429,12 @@ async function pollMoromi() {
   try {
     const since = Date.now() / 1000 - mRangeMin * 60;
     const [rows, latest] = await Promise.all([
-      fetch("/api/track/log?device=moromi&since=" + since).then(r => r.json()),
+      fetch("/api/track/log?device=" + encodeURIComponent(mDevice) + "&since=" + since).then(r => r.json()),
       fetch("/api/track/latest").then(r => r.json()),
     ]);
     mRows = rows;
     drawMoromi(rows);
-    const m = latest.moromi;
+    const m = latest[mDevice];
     let h = "";
     if (m && m.ts) {
       // Show the reading even when the sensor failed: temperature comes through
@@ -461,7 +464,7 @@ function showView(name) {
   document.querySelectorAll(".view").forEach(v => { v.hidden = (v.id !== "view-" + name); });
   document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.view === name));
   if (name === "fermenter") { fitCanvas(); pollLog(); pollStatus(); }
-  else { fitMoromi(); pollMoromi(); }
+  else { fitMoromi(); loadTrackerDevices(); pollMoromi(); }
 }
 
 // ─────────────────────────────────────── profile editor
@@ -671,12 +674,37 @@ $("mRanges").querySelectorAll("button").forEach(b => b.onclick = () => {
   $("mRanges").querySelectorAll("button").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); mRangeMin = +b.dataset.min; pollMoromi();
 });
-$("mCsv").onclick = () => { location.href = "/api/track/export.csv?device=moromi"; };
+$("mCsv").onclick = () => {
+  location.href = "/api/track/export.csv?device=" + encodeURIComponent(mDevice);
+};
 $("mPlotReset").onclick = async () => {
-  if (!confirm("Permanently delete all tracker readings (plot + CSV)?")) return;
-  await fetch("/api/track/reset?device=moromi", { method: "POST" });
+  // Name the device — with several trackers this button is easy to misfire.
+  if (!confirm(`Permanently delete all readings of tracker "${mDevice}" (plot + CSV)?`)) return;
+  await fetch("/api/track/reset?device=" + encodeURIComponent(mDevice), { method: "POST" });
+  await loadTrackerDevices();
   pollMoromi();
 };
+
+// ─────────────────────────────────────── tracker device picker
+async function loadTrackerDevices() {
+  const sel = $("mDevice");
+  if (!sel) return;
+  let devs = [];
+  try { devs = await (await fetch("/api/track/devices")).json(); } catch (e) { /* keep last */ }
+  if (!devs.length) devs = [mDevice];
+  if (!devs.includes(mDevice)) mDevice = devs[0];
+  sel.innerHTML = devs.map(d =>
+    `<option value="${d}"${d === mDevice ? " selected" : ""}>${d}</option>`).join("");
+  sel.hidden = devs.length < 2;      // only clutter the header once there are several
+}
+if ($("mDevice")) {
+  $("mDevice").onchange = e => {
+    mDevice = e.target.value;
+    localStorage.setItem("fmcff_tracker", mDevice);
+    mRows = []; mPlot = null;
+    pollMoromi();
+  };
+}
 document.querySelectorAll(".navbtn").forEach(b => b.onclick = () => showView(b.dataset.view));
 
 // temperature-scale control (auto / manual), persisted in the browser
@@ -729,8 +757,9 @@ window.addEventListener("resize", () => {
 });
 
 fitCanvas();
-loadProfile(); loadManual(); loadProfiles();
+loadProfile(); loadManual(); loadProfiles(); loadTrackerDevices();
 pollStatus(); pollLog();
 setInterval(pollStatus, 2000);
 setInterval(pollLog, 8000);
 setInterval(pollMoromi, 15000);
+setInterval(loadTrackerDevices, 60000);   // a newly flashed node shows up on its own

@@ -16,6 +16,18 @@ Wake → connect WiFi → read DS18B20 → (optional battery voltage) →
 
 Shows up in the dashboard under its own tab (`DEVICE_ID`, default `moromi`).
 
+## Running several trackers
+
+Nothing to configure on the Pi: a node **registers itself by posting**. Give each
+one its own `DEVICE_ID` in `main.py` and they are logged, charted and exported
+separately; the tracker tab grows a device picker as soon as a second one reports.
+
+Handy when swapping hardware — run the new node alongside the old one under a
+different id, compare the two, and only retire the old one once you trust the new.
+
+> ⚠️ *Reset plot* deletes the readings of the **selected** device only, and the
+> confirmation names it — check that name before confirming.
+
 ## Hardware
 
 **Recommended board: WEMOS LOLIN32 Lite.** It has a JST battery connector and a
