@@ -405,8 +405,12 @@ def track_export_csv():
     for r in rows:
         dt = datetime.datetime.fromtimestamp(r[0]).isoformat(sep=" ", timespec="seconds")
         w.writerow([de(r[0]), dt, de(r[1]), de(r[2])])
+    # Quote the filename and strip anything awkward — a device id may contain
+    # spaces, which an unquoted Content-Disposition token can't carry (browsers
+    # truncate the name there).
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in dev) or "tracker"
     return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": "attachment; filename=%s_log.csv" % dev})
+                    headers={"Content-Disposition": 'attachment; filename="%s_log.csv"' % safe})
 
 
 @app.route("/")
