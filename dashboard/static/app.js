@@ -91,6 +91,15 @@ let mRangeMin = 1440, mCW = 900, mCH = 300;        // tracker chart
 // Which tracker the tab shows. Nodes register themselves by POSTing, so running
 // a second one in parallel needs no config here — just pick it from the list.
 let mDevice = localStorage.getItem("fmcff_tracker") || "moromi";
+const TRACKER_INTERVAL_S = 30 * 60;   // must match INTERVAL_S in tracker/main.py
+
+// "14:32" for today, "18.11. 14:32" otherwise
+function fmtWhen(ts) {
+  const d = new Date(ts * 1000), p = n => ("0" + n).slice(-2);
+  const hhmm = p(d.getHours()) + ":" + p(d.getMinutes());
+  return d.toDateString() === new Date().toDateString()
+    ? hhmm : p(d.getDate()) + "." + p(d.getMonth() + 1) + ". " + hhmm;
+}
 let mRows = [], mPlot = null;                        // last tracker data + scale for hover
 function fitCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -444,11 +453,12 @@ async function pollMoromi() {
         ? tile("Temperature", fmt2(m.temp) + " °C")
         : tile("Temperature", "no reading", "alarm");
       if (m.batt != null) h += tile("Battery", fmt2(m.batt) + " V");
-      const d = new Date(m.ts * 1000);
-      const hhmm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
-      const sameDay = d.toDateString() === new Date().toDateString();
-      h += tile("Last reading", sameDay ? hhmm
-        : ("0" + d.getDate()).slice(-2) + "." + ("0" + (d.getMonth() + 1)).slice(-2) + ". " + hhmm);
+      h += tile("Last reading", fmtWhen(m.ts));
+      // The tracker currently sleeps a fixed 30 min. A node that reports its
+      // actual sleep interval (interval_s) takes precedence — that is what the
+      // planned dashboard-configurable interval will send.
+      const next = m.ts + (m.interval_s || TRACKER_INTERVAL_S);
+      h += tile("Approx. next reading", "~" + fmtWhen(next));
     } else {
       h += tile("Status", "no data");
     }
