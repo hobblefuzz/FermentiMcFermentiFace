@@ -23,3 +23,9 @@ images/
 
 # Blog draft — stays local, not part of the published project
 blogpost_fermenter_koji.md
+
+# Third-party / personal spreadsheets kept locally (e.g. the sake calculator)
+docs/*.xlsx
+
+# Exported logs dropped in for analysis (dashboard CSV downloads)
+*_log.csv
