@@ -37,7 +37,7 @@ except ImportError:                       # allow flashing without secrets yet
 DEVICE_ID     = "moromi"           # shows up as its own stream in the dashboard
 ALWAYS_ON     = True         # True: USB/mains, stay awake.  False: battery, deep sleep
 INTERVAL_S    = 30 * 60      # reading interval until the Pi sends one (dashboard setting)
-ONEWIRE_PIN   = 4            # DS18B20 data (4.7 kΩ pull-up to 3.3 V)
+ONEWIRE_PIN   = 15           # DS18B20 data (4.7 kΩ pull-up to 3.3 V) — D15 on the board
 WIFI_TIMEOUT  = 20           # s to wait for a connection
 
 # Always-on mode only

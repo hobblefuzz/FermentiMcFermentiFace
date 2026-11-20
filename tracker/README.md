@@ -79,7 +79,7 @@ on 5 V, so the board's battery problems below don't apply.
 DS18B20          ESP32
 VDD  (red)    →  3V3
 GND  (black)  →  GND
-DATA (yellow) →  GPIO 4      + 4.7 kΩ from DATA to 3V3
+DATA (yellow) →  GPIO 15     + 4.7 kΩ from DATA to 3V3
 ```
 
 - **The pull-up is not optional.** The ESP32's internal pull-up (~45 kΩ, which the
@@ -95,6 +95,9 @@ DATA (yellow) →  GPIO 4      + 4.7 kΩ from DATA to 3V3
 - Keep the ESP32 **outside the fridge** (metal box = poor WiFi); the flat sensor
   cable fits through the door gasket.
 - Leave `BATT_ADC_PIN = None`.
+- GPIO 15 is a strapping pin, but harmlessly so: it only has to be high at boot
+  (else the boot log is muted), and the pull-up keeps it there. Avoid GPIO 12 for
+  the sensor — high at boot, it sets the wrong flash voltage and the board won't start.
 
 ### Working on an always-on node
 
@@ -111,10 +114,10 @@ a Ctrl-C at the REPL ends in a reboot within `WDT_S` (60 s). For flashing:
 TP4054 charger onboard, and — unlike a plain dev board — a regulator that still
 works at LiPo voltage (see [Powering it from a battery](#powering-it-from-a-battery)).
 With it you need **no boost converter and no separate charge module**. It has no
-built-in battery divider, so keep the external one; GPIO4/32/33 are all broken out,
+built-in battery divider, so keep the external one; GPIO15/32/33 are all broken out,
 so the default pin map fits as-is.
 
-- ESP32 + DS18B20 on `ONEWIRE_PIN` (GPIO 4) with a 4.7 kΩ pull-up to 3.3 V.
+- ESP32 + DS18B20 on `ONEWIRE_PIN` (GPIO 15, labelled D15) with a 4.7 kΩ pull-up to 3.3 V.
 - **Wake button** (optional): momentary switch from `WAKE_PIN` (GPIO 33) to GND —
   ends the deep sleep immediately and takes a reading. Handy for debugging and for
   an on-demand measurement. Must be an RTC-capable GPIO; avoid GPIO34–39, which are
