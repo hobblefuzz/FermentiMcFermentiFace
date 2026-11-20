@@ -1,20 +1,62 @@
-# Battery Temperature Tracker 🧪 (beta)
+# Temperature Tracker 🧪 (beta)
 
-> **Beta / experimental.** The firmware works and the node reports reliably while
-> powered, but the **battery side is not solved yet** — see [Powering it from a
-> battery](#powering-it-from-a-battery). Treat this as a starting point, not a
-> finished build. It is entirely optional and independent of the fermenter
-> controller.
+> **Beta / experimental.** On **USB power** (always-on mode) it is simple and
+> reliable. The **battery side is not solved yet** — see [Powering it from a
+> battery](#powering-it-from-a-battery). It is entirely optional and independent
+> of the fermenter controller.
 
-A second, standalone ESP32 that just tracks one temperature (e.g. a mash in the
+A second, standalone ESP32 that just tracks one temperature (e.g. a moromi in the
 fridge) and reports it to the Pi. Sensor-only — it does not control anything.
 
-## Flow
-
-Wake → connect WiFi → read DS18B20 → (optional battery voltage) →
-`POST /api/track {id, temp, batt}` → deep sleep `INTERVAL_S`.
-
 Shows up in the dashboard under its own tab (`DEVICE_ID`, default `moromi`).
+
+## Two modes
+
+`ALWAYS_ON` in `main.py` picks one:
+
+| | **Always-on** (`True`, default) | **Deep sleep** (`False`) |
+|---|---|---|
+| Power | USB / mains | LiPo |
+| Talks to the Pi | heartbeat every `PING_S` (10 s) + a reading every interval | once per wake |
+| New interval from the dashboard | within ~10 s | at the next wake |
+| "Measure now" | ✅ dashboard button or the hardware button | hardware button only |
+| Dashboard shows | **Signal** — age of the last heartbeat (red after 60 s) | battery voltage |
+| Self-healing | watchdog, WiFi radio reset, reboot after 10 min without the Pi | fresh boot every wake anyway |
+
+**Always-on flow:** boot → 5 s maintenance window → loop: heartbeat
+`POST /api/track/ping` every 10 s (reply carries the interval and any "measure
+now"), reading `POST /api/track` whenever the interval has passed.
+
+**Deep-sleep flow:** wake → read DS18B20 (+ battery) → `POST /api/track` →
+deep sleep for the interval in the reply (`INTERVAL_S` if the Pi was unreachable).
+
+## Dashboard settings
+
+The tracker tab has a **Tracker settings** card, stored per device on the Pi
+(`dashboard/data/tracker_config.json`):
+
+- **Interval** — 10 s … 24 h.
+- **Calibration offset** — added on the Pi to every *new* reading (log, chart,
+  CSV all carry the corrected value; the raw one is kept in `/api/track/latest`).
+  Readings already stored are not changed.
+- **Temperature alarm** — min/max; the temperature tile turns red outside the band.
+  Empty = no limit.
+
+The status card also flags **Approx. next reading** red once it is overdue —
+the quickest hint that a sleeping node did not wake up.
+
+## Protocol
+
+All bodies JSON, all replies `{"ok": true, "interval_s": <s>}` plus `"measure": true`
+when a reading was requested from the dashboard (delivered once).
+
+| Endpoint | Sender | Body |
+|---|---|---|
+| `POST /api/track` | node | `{id, temp, batt, power, interval_s}` — a reading |
+| `POST /api/track/ping` | node (always-on) | `{id, power}` — heartbeat |
+| `GET/POST /api/track/config?device=` | dashboard | `{interval_s, offset, alarm_min, alarm_max}` |
+| `POST /api/track/measure?device=` | dashboard | — queue a "measure now" |
+| `GET /api/track/latest` | dashboard | latest reading + `seen` + `config` per device |
 
 ## Running several trackers
 
@@ -28,7 +70,42 @@ different id, compare the two, and only retire the old one once you trust the ne
 > ⚠️ *Reset plot* deletes the readings of the **selected** device only, and the
 > confirmation names it — check that name before confirming.
 
-## Hardware
+## Hardware — USB (always-on)
+
+Any ESP32 dev board, powered from a USB charger — the onboard regulator is happy
+on 5 V, so the board's battery problems below don't apply.
+
+```
+DS18B20          ESP32
+VDD  (red)    →  3V3
+GND  (black)  →  GND
+DATA (yellow) →  GPIO 4      + 4.7 kΩ from DATA to 3V3
+```
+
+- **The pull-up is not optional.** The ESP32's internal pull-up (~45 kΩ, which the
+  MicroPython driver already switches on) is about ten times too weak for 1-Wire —
+  it may pass on a bench with 10 cm of wire and then fail with a cable into the
+  fridge, typically as sporadic *no reading*. The easiest solder-free fix is a
+  **DS18B20 adapter board** (screw terminal + built-in 4.7 kΩ), wired to the ESP32
+  with three jumper wires.
+- Long cable (several metres) or still flaky: go down to 2.2 kΩ (or 1.5 kΩ), and
+  add a 100 nF capacitor between VDD and GND at the sensor end.
+- Power the sensor from **3V3, not 5 V** — with a 5 V pull-up the data line would
+  sit above the ESP32's 3.6 V GPIO limit.
+- Keep the ESP32 **outside the fridge** (metal box = poor WiFi); the flat sensor
+  cable fits through the door gasket.
+- Leave `BATT_ADC_PIN = None`.
+
+### Working on an always-on node
+
+After the 5 s boot window a **hardware watchdog** runs — it can't be stopped, so
+a Ctrl-C at the REPL ends in a reboot within `WDT_S` (60 s). For flashing:
+
+- press reset and start `mpremote` within the 5 s window, or
+- **hold the button (GPIO 33 → GND) while resetting** — the node then stays idle
+  at the REPL until the next reset.
+
+## Hardware — battery (deep sleep)
 
 **Recommended board: WEMOS LOLIN32 Lite.** It has a JST battery connector and a
 TP4054 charger onboard, and — unlike a plain dev board — a regulator that still
@@ -57,7 +134,12 @@ so the default pin map fits as-is.
 1. Flash MicroPython. Upload `main.py` and `lib`-free (`onewire`/`ds18x20` are
    built in).
 2. Copy `secrets_example.py` → `secrets.py`, fill in WiFi + `PI_HOST`/`PI_PORT`.
-3. For best battery life set `STATIC_IP` and `BSSID` in `secrets.py`.
+3. Set `DEVICE_ID`, and `ALWAYS_ON` (`True` on USB, `False` on battery).
+4. Battery only: for best battery life set `STATIC_IP` and `BSSID` in
+   `secrets.py`, and `BATT_ADC_PIN` if you wired a divider.
+
+The interval, offset and alarm limits are set in the dashboard, not here —
+`INTERVAL_S` is only the fallback until the node has heard from the Pi.
 
 ## Powering it from a battery
 
@@ -124,10 +206,14 @@ With a genuinely low sleep current, a 2000 mAh cell lasts weeks to months at a
 
 ## Testing
 
-Press the **wake button** (GPIO 33 → GND): the node wakes immediately, takes a
+Always-on: hit **⟳ Measure now** in the dashboard or press the button — the
+reading shows up within a few seconds. The REPL prints every heartbeat result
+that changes something (`interval 1800 → 60 s`, `dashboard → measuring now`).
+
+Deep sleep: press the **wake button** (GPIO 33 → GND): the node wakes immediately, takes a
 reading, and — because a press means a human is present — gives you the same 5 s
 window to grab the REPL with Ctrl-C as a manual reset does. That is usually all you
 need; check the tracker tab or `GET /api/track/latest` on the Pi.
 
-Without a wake button, temporarily comment out the last `machine.deepsleep(...)`
-line so it runs, prints, and stops.
+Without a wake button, temporarily set `ALWAYS_ON = True` to watch it read and
+report in a loop.

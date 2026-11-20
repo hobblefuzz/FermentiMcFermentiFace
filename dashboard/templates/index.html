@@ -145,8 +145,35 @@
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>Current status</h2></div>
+        <div class="card-head">
+          <h2>Current status</h2>
+          <button id="mMeasure" title="Ask the node for a reading now (always-on trackers pick it up within a few seconds)">⟳ Measure now</button>
+        </div>
         <div id="mLive" class="stats off">loading …</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="htitle">
+            <h2>Tracker settings</h2>
+            <span class="help" data-tip="Per tracker. An always-on (USB) node picks up a new interval within ~10 s; a battery node at its next wake. Offset and alarm limits are applied on the Pi — the offset to every new reading (log, chart and CSV), not to readings already stored.">?</span>
+          </div>
+        </div>
+        <div class="mgroups">
+          <div class="mgroup">
+            <h3>Measuring</h3>
+            <label>Interval<select id="mcInterval"></select></label>
+            <label>Calibration offset °C<input type="number" step="0.1" id="mcOffset" placeholder="0.0"></label>
+          </div>
+          <div class="mgroup">
+            <h3>Temperature alarm</h3>
+            <label>Min °C<input type="number" step="0.1" id="mcMin" placeholder="off"></label>
+            <label>Max °C<input type="number" step="0.1" id="mcMax" placeholder="off"></label>
+          </div>
+        </div>
+        <div class="btns">
+          <button id="mcSave">Save</button>
+        </div>
       </section>
 
     </div><!-- /view-tracker -->

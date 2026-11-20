@@ -121,7 +121,7 @@ setpoints itself. A version handshake re-syncs the curve after edits. See
 | `firmware/gui.py`, `encoder.py` | 1602 menu system + rotary encoder. |
 | `firmware/fan.py`, `heater.py`, `pins.py` | Actuators and pin map. |
 | `dashboard/` | Raspberry Pi server + web dashboard — see [`dashboard/README.md`](dashboard/README.md). |
-| `tracker/` | 🧪 **Beta** — optional battery sensor node, see [`tracker/README.md`](tracker/README.md). |
+| `tracker/` | 🧪 **Beta** — optional temperature node (USB always-on or battery), see [`tracker/README.md`](tracker/README.md). |
 | `PROTOCOL.md` | ESP32 ↔ Pi wire format. |
 
 ## Quick start
@@ -175,8 +175,9 @@ but they are no substitute for a safe electrical build. Use at your own risk.
 Running in production on a real fermenter. The controller, dashboard and autonomous profile
 execution are complete and tested, including a full power-cut recovery test.
 
-`tracker/` is **beta**: the firmware works, but the battery hardware is still being sorted
-out (a standard dev board's regulator and quiescent current make it a poor battery device).
+`tracker/` is **beta**: on USB power (always-on mode, configured from the dashboard) it is
+simple and reliable; the battery hardware is still being sorted out (a standard dev board's
+regulator and quiescent current make it a poor battery device).
 
 ## License
 

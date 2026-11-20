@@ -47,8 +47,9 @@ function flash(btn) {
 }
 
 // ─────────────────────────────────────── live status
-function tile(lbl, val, cls) {
-  return `<div class="stat ${cls || ""}"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
+function tile(lbl, val, cls, sub) {
+  return `<div class="stat ${cls || ""}"><div class="lbl">${lbl}</div><div class="val">${val}</div>` +
+    (sub ? `<div class="sub">${sub}</div>` : "") + `</div>`;
 }
 async function pollStatus() {
   try {
@@ -91,7 +92,23 @@ let mRangeMin = 1440, mCW = 900, mCH = 300;        // tracker chart
 // Which tracker the tab shows. Nodes register themselves by POSTing, so running
 // a second one in parallel needs no config here — just pick it from the list.
 let mDevice = localStorage.getItem("fmcff_tracker") || "moromi";
-const TRACKER_INTERVAL_S = 30 * 60;   // must match INTERVAL_S in tracker/main.py
+const TRACKER_INTERVAL_S = 30 * 60;   // fallback — the real one is set per tracker below
+const TRACKER_STALE_S = 60;           // always-on nodes ping every ~10 s; this is "gone"
+const TRACKER_INTERVALS = [10, 30, 60, 300, 600, 900, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600];
+
+// 10 → "10 s", 300 → "5 min", 3600 → "1 h"
+function fmtInterval(s) {
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.round(s / 60) + " min";
+  return +(s / 3600).toFixed(1) + " h";
+}
+// "12 s ago", "4 min ago", "2 h ago"
+function fmtAgo(s) {
+  s = Math.max(0, Math.round(s));
+  if (s < 90) return s + " s ago";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  return +(s / 3600).toFixed(1) + " h ago";
+}
 
 // "14:32" for today, "18.11. 14:32" otherwise
 function fmtWhen(ts) {
@@ -443,22 +460,43 @@ async function pollMoromi() {
     ]);
     mRows = rows;
     drawMoromi(rows);
+    // USB nodes have no battery — drop the then-meaningless legend entry.
+    const bl = document.querySelector(".legend label.lg.batt");
+    if (bl) bl.hidden = !rows.some(r => r.batt != null);
     const m = latest[mDevice];
+    const now = Date.now() / 1000;
     let h = "";
     if (m && m.ts) {
+      const cfg = m.config || {};
+      const alwaysOn = m.power === "usb";
       // Show the reading even when the sensor failed: temperature comes through
       // as null (loose plug / out-of-range / all-zeros glitch), but battery and
       // time are still useful — so flag the temp and keep the rest visible.
-      h += (m.temp != null)
-        ? tile("Temperature", fmt2(m.temp) + " °C")
-        : tile("Temperature", "no reading", "alarm");
+      if (m.temp == null) {
+        h += tile("Temperature", "no reading", "alarm");
+      } else {
+        const lo = cfg.alarm_min, hi = cfg.alarm_max;
+        const tooLow = lo != null && m.temp < lo, tooHigh = hi != null && m.temp > hi;
+        const sub = tooLow ? `below ${fmt2(lo)} °C` : tooHigh ? `above ${fmt2(hi)} °C`
+          : (cfg.offset ? `incl. offset ${cfg.offset > 0 ? "+" : ""}${cfg.offset} °C` : "");
+        h += tile("Temperature", fmt2(m.temp) + " °C", (tooLow || tooHigh) ? "alarm" : "", sub);
+      }
       if (m.batt != null) h += tile("Battery", fmt2(m.batt) + " V");
+      // Mains-powered nodes stay awake and ping every ~10 s — the age of that
+      // heartbeat is the honest "is it alive" signal, not the reading time.
+      if (alwaysOn) {
+        const age = m.seen ? now - m.seen : Infinity;
+        h += tile("Signal", m.seen ? fmtAgo(age) : "–", age > TRACKER_STALE_S ? "alarm" : "run",
+                  age > TRACKER_STALE_S ? "node not reachable" : "online · USB");
+      }
       h += tile("Last reading", fmtWhen(m.ts));
-      // The tracker currently sleeps a fixed 30 min. A node that reports its
-      // actual sleep interval (interval_s) takes precedence — that is what the
-      // planned dashboard-configurable interval will send.
-      const next = m.ts + (m.interval_s || TRACKER_INTERVAL_S);
-      h += tile("Approx. next reading", "~" + fmtWhen(next));
+      // Always-on nodes switch to a new interval within one heartbeat, so the
+      // current setting applies; a sleeping node keeps the one it woke with.
+      const iv = (alwaysOn ? cfg.interval_s : m.interval_s) || cfg.interval_s || TRACKER_INTERVAL_S;
+      const next = m.ts + iv;
+      const overdue = now > next + Math.max(60, iv * 0.1);
+      h += tile("Approx. next reading", "~" + fmtWhen(next), overdue ? "alarm" : "",
+                overdue ? "overdue" : "every " + fmtInterval(iv));
     } else {
       h += tile("Status", "no data");
     }
@@ -474,7 +512,7 @@ function showView(name) {
   document.querySelectorAll(".view").forEach(v => { v.hidden = (v.id !== "view-" + name); });
   document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.view === name));
   if (name === "fermenter") { fitCanvas(); pollLog(); pollStatus(); }
-  else { fitMoromi(); loadTrackerDevices(); pollMoromi(); }
+  else { fitMoromi(); loadTrackerDevices().then(loadTrackerCfg); pollMoromi(); }
 }
 
 // ─────────────────────────────────────── profile editor
@@ -712,9 +750,45 @@ if ($("mDevice")) {
     mDevice = e.target.value;
     localStorage.setItem("fmcff_tracker", mDevice);
     mRows = []; mPlot = null;
+    loadTrackerCfg();
     pollMoromi();
   };
 }
+
+// ─────────────────────────────────────── tracker settings (per device)
+// Loaded on tab switch / device change only, so a poll never overwrites what
+// you're typing.
+async function loadTrackerCfg() {
+  let c;
+  try { c = await (await fetch("/api/track/config?device=" + encodeURIComponent(mDevice))).json(); }
+  catch (e) { return; }
+  const opts = TRACKER_INTERVALS.includes(c.interval_s)
+    ? TRACKER_INTERVALS : [...TRACKER_INTERVALS, c.interval_s].sort((a, b) => a - b);
+  $("mcInterval").innerHTML = opts.map(s =>
+    `<option value="${s}"${s === c.interval_s ? " selected" : ""}>${fmtInterval(s)}</option>`).join("");
+  $("mcOffset").value = c.offset ? c.offset : "";
+  $("mcMin").value = c.alarm_min ?? "";
+  $("mcMax").value = c.alarm_max ?? "";
+}
+$("mcSave").onclick = async () => {
+  const lo = $("mcMin").value, hi = $("mcMax").value;
+  if (lo !== "" && hi !== "" && +lo >= +hi) { alert("Alarm min must be below max."); return; }
+  await fetch("/api/track/config?device=" + encodeURIComponent(mDevice), {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interval_s: +$("mcInterval").value, offset: $("mcOffset").value,
+                           alarm_min: lo, alarm_max: hi }),
+  });
+  flash($("mcSave"));
+  await loadTrackerCfg();
+  pollMoromi();
+};
+$("mMeasure").onclick = async () => {
+  await fetch("/api/track/measure?device=" + encodeURIComponent(mDevice), { method: "POST" });
+  const b = $("mMeasure"), t = b.textContent;
+  b.textContent = "✓ requested"; setTimeout(() => b.textContent = t, 2000);
+  setTimeout(pollMoromi, 4000);      // usually there by then (heartbeat ≤ 10 s)
+  setTimeout(pollMoromi, 12000);
+};
 document.querySelectorAll(".navbtn").forEach(b => b.onclick = () => showView(b.dataset.view));
 
 // temperature-scale control (auto / manual), persisted in the browser

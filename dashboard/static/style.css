@@ -106,8 +106,9 @@ th { color:var(--dim); font-weight:600; }
 .mgroup label { display:flex; flex-direction:column; gap:.2rem; font-size:.8rem; color:var(--dim);
   margin-bottom:.45rem; }
 .mgroup label.chk { flex-direction:row; align-items:center; gap:.45rem; margin-bottom:.55rem; color:var(--fg); }
-.mgroup input[type=number] { background:#0f1216; border:1px solid var(--line); color:var(--fg);
-  border-radius:6px; padding:.32rem; }
+.mgroup input[type=number], .mgroup select { background:#0f1216; border:1px solid var(--line);
+  color:var(--fg); border-radius:6px; padding:.32rem; }
+.stat .sub { font-size:.72rem; color:var(--dim); margin-top:.1rem; }
 
 .htitle { display:flex; align-items:center; }
 .help { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;

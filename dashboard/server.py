@@ -35,6 +35,7 @@ DB            = os.path.join(DATA, "telemetry.db")
 PROFILE_FILE  = os.path.join(DATA, "profile.json")
 MANUAL_FILE   = os.path.join(DATA, "manual.json")
 PROFILES_FILE = os.path.join(DATA, "profiles.json")   # named profile library
+TRACKER_CFG_FILE = os.path.join(DATA, "tracker_config.json")  # per-tracker settings
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True   # pick up index.html edits without a restart
@@ -74,12 +75,57 @@ except Exception:
     profiles = {}
 
 last_telemetry = {}
-last_tracker = {}   # device_id -> {"ts", "temp", "batt"}
+last_tracker = {}   # device_id -> {"ts", "temp", "raw", "batt", "interval_s", "power"}
+tracker_seen = {}   # device_id -> time of the last contact (reading or heartbeat)
+tracker_measure = set()   # device ids with a pending "measure now" request
+
+# Per-tracker settings, edited in the dashboard and handed to the node in the
+# reply to every heartbeat / reading.  Offset and alarm limits are applied here
+# on the Pi; only the interval actually travels to the node.
+TRACKER_DEFAULTS = {"interval_s": 1800, "offset": 0.0, "alarm_min": None, "alarm_max": None}
+TRACKER_INTERVAL_MIN, TRACKER_INTERVAL_MAX = 10, 24 * 3600
+tracker_cfg = {}
+try:
+    with open(TRACKER_CFG_FILE) as f:
+        tracker_cfg = json.load(f)
+except Exception:
+    tracker_cfg = {}
 
 
 def _save_manual():
     with open(MANUAL_FILE, "w") as f:
         json.dump(manual, f, indent=2)
+
+
+def _save_tracker_cfg():
+    with open(TRACKER_CFG_FILE, "w") as f:
+        json.dump(tracker_cfg, f, indent=2)
+
+
+def _tcfg(dev):
+    """Effective settings for a tracker: defaults overlaid with what was saved."""
+    c = dict(TRACKER_DEFAULTS)
+    c.update(tracker_cfg.get(dev, {}))
+    return c
+
+
+def _num(v):
+    """float(v), or None for empty / missing / unparsable input."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _node_reply(dev):
+    """What a tracker node gets back: its interval + a pending measure request."""
+    reply = {"ok": True, "interval_s": int(_tcfg(dev)["interval_s"])}
+    if dev in tracker_measure:
+        tracker_measure.discard(dev)
+        reply["measure"] = True
+    return reply
 
 
 def _save_profiles():
@@ -322,16 +368,70 @@ def power(action):
 @app.route("/api/track", methods=["POST"])
 def track():
     t = request.get_json(force=True, silent=True) or {}
-    dev = t.get("id", "tracker")
-    temp = t.get("temp")
-    batt = t.get("batt")
-    last_tracker[dev] = {"ts": time.time(), "temp": temp, "batt": batt}
+    dev = str(t.get("id") or "tracker")
+    now = time.time()
+    raw = _num(t.get("temp"))
+    batt = _num(t.get("batt"))
+    # Calibration offset is applied here, so the log, chart and CSV all carry
+    # the corrected value and the node never needs to know about it.
+    temp = None if raw is None else round(raw + float(_tcfg(dev)["offset"] or 0), 2)
+    reply = _node_reply(dev)
+    # interval_s = what the node runs on from now on (the one we hand it back),
+    # so the dashboard can estimate the next reading even for a sleeping node.
+    last_tracker[dev] = {"ts": now, "temp": temp, "raw": raw, "batt": batt,
+                         "interval_s": reply["interval_s"], "power": t.get("power")}
+    tracker_seen[dev] = now
     try:
         c = _db()
-        c.execute("INSERT INTO tracker VALUES (?,?,?,?)", (time.time(), dev, temp, batt))
+        c.execute("INSERT INTO tracker VALUES (?,?,?,?)", (now, dev, temp, batt))
         c.commit(); c.close()
     except Exception as e:
         print("[db] track error:", e)
+    return jsonify(reply)
+
+
+@app.route("/api/track/ping", methods=["POST"])
+def track_ping():
+    """Heartbeat from an always-on (mains-powered) tracker, every few seconds.
+
+    Keeps the dashboard's "last signal" fresh between readings and hands the
+    node its current interval plus any pending "measure now" request — so a
+    change in the dashboard takes effect within one heartbeat.
+    """
+    t = request.get_json(force=True, silent=True) or {}
+    dev = str(t.get("id") or "tracker")
+    tracker_seen[dev] = time.time()
+    if dev in last_tracker:
+        last_tracker[dev]["power"] = t.get("power", last_tracker[dev].get("power"))
+    return jsonify(_node_reply(dev))
+
+
+@app.route("/api/track/config", methods=["GET", "POST"])
+def track_config():
+    """Dashboard: read / change one tracker's settings (device=<id>)."""
+    dev = request.args.get("device", "moromi")
+    if request.method == "POST":
+        d = request.get_json(force=True, silent=True) or {}
+        cur = _tcfg(dev)
+        if "interval_s" in d and _num(d["interval_s"]) is not None:
+            cur["interval_s"] = int(max(TRACKER_INTERVAL_MIN,
+                                        min(TRACKER_INTERVAL_MAX, _num(d["interval_s"]))))
+        if "offset" in d:
+            off = _num(d["offset"]) or 0.0
+            cur["offset"] = max(-10.0, min(10.0, off))
+        for k in ("alarm_min", "alarm_max"):
+            if k in d:
+                cur[k] = _num(d[k])            # empty field → no limit
+        tracker_cfg[dev] = cur
+        _save_tracker_cfg()
+    return jsonify(_tcfg(dev))
+
+
+@app.route("/api/track/measure", methods=["POST"])
+def track_measure():
+    """Ask an always-on tracker for a reading now (delivered with its next heartbeat)."""
+    dev = request.args.get("device", "moromi")
+    tracker_measure.add(dev)
     return jsonify({"ok": True})
 
 
@@ -343,16 +443,25 @@ def track_reset():
     if dev:
         c.execute("DELETE FROM tracker WHERE device=?", (dev,))
         last_tracker.pop(dev, None)
+        tracker_seen.pop(dev, None)
     else:
         c.execute("DELETE FROM tracker")
         last_tracker.clear()
+        tracker_seen.clear()
     c.commit(); c.close()
     return jsonify({"ok": True})
 
 
 @app.route("/api/track/latest")
 def track_latest():
-    return jsonify(last_tracker)
+    """Latest reading per tracker, plus last contact and current settings."""
+    out = {}
+    for dev in set(last_tracker) | set(tracker_seen):
+        e = dict(last_tracker.get(dev, {}))
+        e["seen"] = tracker_seen.get(dev)
+        e["config"] = _tcfg(dev)
+        out[dev] = e
+    return jsonify(out)
 
 
 @app.route("/api/track/devices")
@@ -363,7 +472,7 @@ def track_devices():
     last_tracker, so a node that just reported shows up right away.  Trackers
     register themselves simply by POSTing — nothing to configure here.
     """
-    devs = set(last_tracker)
+    devs = set(last_tracker) | set(tracker_seen)
     try:
         c = _db()
         devs |= {r[0] for r in c.execute(
